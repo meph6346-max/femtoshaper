@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>FEMTO SHAPER</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- 앱바 -->
+<div class="ab">
+  <div class="ab-logo">F</div>
+  <div class="ab-t">FEMTO SHAPER <small>v1.0</small></div>
+  <div class="ab-sp"></div>
+  <a href="/manual" target="_blank" class="ab-link" title="User Manual">📖</a>
+  <div class="ab-st" id="adxlStatus" onclick="switchTab('settings');document.getElementById('logAdxl')?.scrollIntoView({behavior:'smooth'})" style="cursor:pointer" title="ADXL345 상태 — 클릭하여 상세 확인">
+    <span id="adxlDot">●</span> <span id="adxlLabel">ADXL345</span>
+  </div>
+  <div class="lt">
+    <button class="lb active" onclick="setLang('en')">EN</button>
+    <button class="lb" onclick="setLang('ko')">KO</button>
+  </div>
+</div>
+
+<div class="mc">
+
+  <!-- 메인 탭바 (4탭) -->
+  <div class="tb">
+    <button class="tab active" onclick="switchTab('shaper')"><span class="ti">⚡</span><span data-i18n="tab_shaper"></span></button>
+    <button class="tab" onclick="switchTab('diag')"><span class="ti">🔍</span><span data-i18n="tab_diag"></span></button>
+    <button class="tab" onclick="switchTab('live')"><span class="ti">📡</span><span data-i18n="tab_live"></span></button>
+    <button class="tab" onclick="switchTab('settings')"><span class="ti">⚙️</span><span data-i18n="tab_settings"></span></button>
+  </div>
+
+  <!-- ===== 탭 1: SHAPER ===== -->
+  <div class="pg active" id="pg-shaper">
+    <!-- ADXL 미연결 데모 배너 -->
+    <div id="demoBanner" class="demo-banner" style="display:none">
+      ⚠ <span data-i18n="demo_banner"></span>
+    </div>
+    <!-- 온보딩 배너 -->
+    <div id="onboardBanner" style="display:none;background:linear-gradient(135deg,rgba(33,150,243,.12),rgba(76,175,80,.08));border:1px solid rgba(33,150,243,.3);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px">👋 <span data-i18n="onboard_title"></span></div>
+      <div style="font-size:12px;color:var(--tx2);line-height:1.6" data-i18n="onboard_desc"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn btn-pri btn-sm" onclick="switchTab('settings');startAxisCalibration()">📐 <span data-i18n="onboard_cal"></span></button>
+        <button class="btn btn-out btn-sm" onclick="document.getElementById('onboardBanner').style.display='none'">✕ <span data-i18n="onboard_dismiss"></span></button>
+      </div>
+    </div>
+
+    <!-- ★ 측정 카드 (가장 위 — 사용자가 처음 보는 것) -->
+    <div class="card" id="pmCard" style="border:1px solid var(--pri);padding:14px;margin-bottom:10px">
+      <!-- 측정 전: 안내 + 시작 버튼 -->
+      <div id="pmIdle">
+        <div style="text-align:center;padding:12px 0">
+          <div style="font-size:28px;margin-bottom:8px">📊</div>
+          <div style="font-size:16px;font-weight:700;color:var(--pri);margin-bottom:10px" data-i18n="measure_title">진동 측정</div>
+          <div style="font-size:13px;color:var(--tx2);line-height:1.7;max-width:320px;margin:0 auto 16px">
+            <span data-i18n="measure_guide">센서를 프린터에 부착하고, 아무 모델이나 출력하면서 측정합니다.<br>캘리브레이션이 X/Y를 자동 분리합니다.</span>
+          </div>
+          <button class="btn btn-pri" id="btnPmStart" onclick="startPrintMeasure()" style="font-size:15px;padding:10px 28px" data-i18n="btn_start_measure">▶ 측정 시작</button>
+        </div>
+      </div>
+      <!-- 측정 중: 진행 상태 -->
+      <div id="pmRunning" style="display:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div class="ld on" style="width:10px;height:10px"></div>
+          <span style="font-size:14px;font-weight:600;color:var(--pri)" data-i18n="measuring">측정 중...</span>
+          <div style="flex:1"></div>
+          <button class="btn btn-err btn-sm" id="btnPmDone" onclick="stopPrintMeasure()" data-i18n="btn_stop_measure">⏹ 측정 완료</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <div style="flex:1;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden">
+            <div id="pmProgressBar" style="height:100%;width:0%;background:var(--pri);border-radius:3px;transition:width 0.5s"></div>
+          </div>
+          <span id="pmProgress" style="font-size:11px;color:var(--tx2);min-width:35px">0%</span>
+        </div>
+        <div id="pmSegs" style="font-size:11px;color:var(--tx3)">0 / 0 segs</div>
+      </div>
+    </div>
+
+    <!-- ★ 결과 요약 (측정 완료 후 나타남) -->
+    <div id="resultSection" style="display:none">
+      <div class="ig">
+        <div class="ic"><div class="il" data-i18n="peak_x"></div><div class="iv c-pri" id="vPeakX">— Hz</div></div>
+        <div class="ic"><div class="il" data-i18n="peak_y"></div><div class="iv c-suc" id="vPeakY">— Hz</div></div>
+        <div class="ic"><div class="il" data-i18n="shaper"></div><div class="iv c-wrn" id="vShaper">—</div></div>
+        <div class="ic"><div class="il" data-i18n="max_accel"></div><div class="iv c-inf" id="vMaxAccel">—</div></div>
+        <div class="ic" style="grid-column:span 2"><div class="il">Confidence</div><div class="iv" id="vConf" style="font-size:11px;letter-spacing:1px">—</div></div>
+        <div id="lowConfWarn" style="display:none;grid-column:span 2;padding:4px 8px;font-size:11px"></div>
+        <div id="practicalInfo" style="display:none;grid-column:span 2;padding:6px 8px;font-size:11px;line-height:1.6;background:var(--bg2);border-radius:6px"></div>
+      </div>
+      <div class="pcb" id="pcbShaper"><span id="pcbText">⚙ —</span><a class="pcb-link" onclick="switchTab('settings')" data-i18n="config_go_settings"></a></div>
+
+      <!-- X축 -->
+      <div class="card">
+        <div class="ct-bar"><div class="ct-left"><div class="ax x">X</div><span class="ct" data-i18n="freq_response"></span></div><div class="rc" id="rcX">—</div></div>
+        <div class="chb" style="position:relative"><canvas id="cX"></canvas><div id="cXEmpty" class="ch-empty"><span data-i18n="chart_x_empty"></span></div></div>
+        <div class="sl-hdr"><span>Shaper</span><span>Freq</span><span>Vibr%</span><span>Accel</span><span>Smooth</span><span></span></div>
+        <div class="sl" id="slX"></div>
+        <div class="rec-sum" id="recX"></div>
+      </div>
+      <!-- Y축 -->
+      <div class="card">
+        <div class="ct-bar"><div class="ct-left"><div class="ax y">Y</div><span class="ct" data-i18n="freq_response"></span></div><div class="rc" id="rcY">—</div></div>
+        <div class="chb" style="position:relative"><canvas id="cY"></canvas><div id="cYEmpty" class="ch-empty"><span data-i18n="chart_y_empty"></span></div></div>
+        <div class="sl-hdr"><span>Shaper</span><span>Freq</span><span>Vibr%</span><span>Accel</span><span>Smooth</span><span></span></div>
+        <div class="sl" id="slY"></div>
+        <div class="rec-sum" id="recY"></div>
+      </div>
+
+      <!-- 액션 버튼 -->
+      <div class="br" style="justify-content:flex-end;gap:6px;margin-top:4px">
+        <button class="btn btn-sec btn-sm" id="btnSaveResult" onclick="doSaveResult()" style="display:none">💾 <span data-i18n="btn_save_result"></span></button>
+        <button class="btn btn-sec btn-sm" onclick="generateReport()">📄 Report</button>
+        <button class="btn btn-pri btn-sm" id="btnApply" onclick="toggleApplyPanel()">⚡ <span data-i18n="btn_apply"></span></button>
+      </div>
+      <div class="save-msg" id="resultSaveStatus" style="display:none"></div>
+    </div>
+
+    <!-- Apply 다이얼로그 -->
+    <div class="apply-panel" id="applyPanel">
+      <div class="ap-head"><span data-i18n="apply_title"></span><button class="btn btn-sm btn-sec" onclick="toggleApplyPanel()">✕</button></div>
+      <div class="ap-body">
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:8px" data-i18n="apply_edit_hint"></div>
+        <div class="ap-fields">
+          <div class="ap-field"><label>X (Hz)</label><input type="number" id="apFreqX" step="0.1" value="0" oninput="updateApplyPreview()"></div>
+          <div class="ap-field"><label>Y (Hz)</label><input type="number" id="apFreqY" step="0.1" value="0" oninput="updateApplyPreview()"></div>
+          <div class="ap-field"><label>X Shaper</label><select id="apShaperX" onchange="updateApplyPreview()"><option value="zv">ZV</option><option value="mzv" selected>MZV</option><option value="ei">EI</option><option value="2hump_ei">2HUMP_EI</option><option value="3hump_ei">3HUMP_EI</option></select></div>
+          <div class="ap-field"><label>Y Shaper</label><select id="apShaperY" onchange="updateApplyPreview()"><option value="zv">ZV</option><option value="mzv" selected>MZV</option><option value="ei">EI</option><option value="2hump_ei">2HUMP_EI</option><option value="3hump_ei">3HUMP_EI</option></select></div>
+          <div class="ap-field"><label>Damping</label><input type="number" id="apDamping" step="0.01" value="0.1" oninput="updateApplyPreview()"></div>
+        </div>
+        <div class="ap-preview" id="apPreview"></div>
+        <div class="br">
+          <button class="btn btn-pri btn-sm" onclick="downloadApply()">⬇ <span data-i18n="apply_download"></span></button>
+          <button class="btn btn-out btn-sm" onclick="copyApply()">📋 <span data-i18n="apply_copy"></span></button>
+        </div>
+        <div class="ap-guide">
+          <details id="guideMarlinIS"><summary>Marlin IS (M593)</summary><pre id="guideMarlinISPre"></pre></details>
+          <details><summary>Marlin FTM (M493)</summary><pre id="guideMarlinFTMPre"></pre></details>
+          <details><summary>Klipper (printer.cfg)</summary><pre id="guideKlipperPre"></pre></details>
+          <details><summary>RepRapFirmware (M593)</summary><pre id="guideRRFPre"></pre></details>
+        </div>
+      </div>
+    </div>
+
+    <!-- 로그 (접힘) -->
+    <details style="margin-top:8px">
+      <summary style="font-size:11px;color:var(--tx3);cursor:pointer;padding:4px">▸ Log</summary>
+      <div class="term"><div class="term-bar"><div class="term-dot"></div>Log</div><div class="term-body" id="logShaper"><div><span class="log-ok">></span> <span data-i18n="log_ready"></span></div></div></div>
+    </details>
+  </div>
+
+  <!-- ===== 탭 2: DIAGNOSTIC ===== -->
+  <div class="pg" id="pg-diag">
+    <!-- 측정 전 안내 -->
+    <div id="diagEmpty" style="text-align:center;padding:40px 16px">
+      <div style="font-size:36px;margin-bottom:12px">🔍</div>
+      <div style="font-size:16px;font-weight:600;color:var(--tx1);margin-bottom:8px" data-i18n="diag_empty_title">프린터 상태 진단</div>
+      <div style="font-size:13px;color:var(--tx3);line-height:1.7" data-i18n="diag_empty_desc">Shaper 탭에서 측정을 먼저 진행하세요.<br>측정 결과를 바탕으로 프린터 상태를 자동 분석합니다.</div>
+    </div>
+
+    <!-- 측정 후 결과 (JS가 채움) -->
+    <div id="diagResults" style="display:none">
+      <!-- 종합 상태 -->
+      <div class="card" id="diagOverallCard" style="text-align:center;padding:16px">
+        <div id="diagOverallIcon" style="font-size:40px;margin-bottom:6px">🟢</div>
+        <div id="diagOverallTitle" style="font-size:18px;font-weight:700;margin-bottom:4px">프린터 상태 양호</div>
+        <div id="diagOverallDesc" style="font-size:12px;color:var(--tx3)"></div>
+      </div>
+
+      <!-- 발견 항목 리스트 (JS가 카드 생성) -->
+      <div id="diagFindings"></div>
+    </div>
+  </div>
+
+  <!-- ===== 탭 3: LIVE (청진기) ===== -->
+  <div class="pg" id="pg-live">
+    <div class="card" style="padding:10px 14px">
+      <div class="lh">
+        <div class="ld" id="liveInd"></div>
+        <span class="ll">Live Spectrum</span>
+        <div class="lf">
+          <span style="color:#88C0D0">X</span>: <strong id="livePeak">—</strong>
+          &nbsp;
+          <span style="color:#EBCB8B">Y</span>: <strong id="livePeakY">—</strong>
+        </div>
+      </div>
+      <div class="chb" style="height:260px;position:relative">
+        <canvas id="cLive"></canvas>
+        <div id="liveHint" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--tx3);font-size:13px;pointer-events:none">
+          ▶ 시작을 누르고<br>프린터를 만져보세요
+        </div>
+      </div>
+      <!-- 감지 상태 (한 줄) -->
+      <div id="liveStatus" style="font-size:12px;color:var(--tx3);padding:4px 0;min-height:20px"></div>
+    </div>
+    <div class="br" style="gap:6px">
+      <button class="btn btn-pri" id="liveBtn" onclick="toggleLive()">▶ <span id="liveBtnTxt"></span></button>
+      <div style="flex:1"></div>
+      <button class="btn btn-out btn-sm" id="livePeakHoldBtn" onclick="togglePeakHold()" title="피크 잔상">📌 Hold</button>
+      <button class="btn btn-out btn-sm" onclick="resetLiveHistory()" title="히트맵 초기화">↺</button>
+    </div>
+    <details style="margin-top:6px">
+      <summary style="font-size:11px;color:var(--tx3);cursor:pointer;padding:4px">💡 사용법</summary>
+      <div style="font-size:11px;color:var(--tx3);line-height:1.7;padding:8px">
+        프레임을 두드리면 → 해당 공진 주파수가 순간 피크<br>
+        벨트를 퉁기면 → 벨트 고유진동수 확인<br>
+        핫엔드를 잡으면 → 캐리지 피크가 감소하는지 확인<br>
+        볼트를 조이면 → 주파수 변화 관찰<br>
+        팬을 켜면 → 팬 RPM÷60 = Hz 에서 지속 피크<br>
+        <br>
+        <b>📌 Hold</b>: 피크 잔상을 켜면 순간 피크가 천천히 사라져서 "어디서 떨렸는지" 남습니다.<br>
+        <b>색상</b>: 자주 나타나는 주파수일수록 진한 색으로 변합니다.
+      </div>
+    </details>
+  </div>
+
+  <!-- ===== 탭 4: SETTINGS ===== -->
+  <div class="pg" id="pg-settings">
+    <div class="stb" style="margin-bottom:8px">
+      <button class="stab active" onclick="switchSettingsTab('basic')">⚙ <span data-i18n="stab_basic">Basic</span></button>
+      <button class="stab" onclick="switchSettingsTab('advanced')">🔧 <span data-i18n="stab_adv">Advanced</span></button>
+      <button class="stab" onclick="switchSettingsTab('log')">📋 <span data-i18n="stab_log">Log</span></button>
+      <button class="stab" onclick="switchSettingsTab('system')">🖥 <span data-i18n="stab_sys">System</span></button>
+    </div>
+
+    <!-- ═══ 1. 기본설정 ═══ -->
+    <div id="settingsBasic">
+      <div class="card">
+        <div class="fs"><div class="fs-t">🖨 <span data-i18n="sec_printer"></span></div>
+          <div class="fg">
+            <div class="fi"><label data-i18n="build_x"></label><input type="number" id="s_buildX" value="120"><div class="fi-hint">속도 도달 거리 계산 + 리포트</div></div>
+            <div class="fi"><label data-i18n="build_y"></label><input type="number" id="s_buildY" value="120"><div class="fi-hint">속도 도달 거리 계산 + 리포트</div></div>
+            <div class="fi"><label data-i18n="max_accel_set"></label><input type="number" id="s_accel" value="3000"><div class="fi-hint">추천 maxAccel과 비교하여 적용 가능 여부 판단</div></div>
+            <div class="fi"><label data-i18n="max_feed"></label><input type="number" id="s_feedrate" value="200"><div class="fi-hint">출력 속도 — 가감속 거리 · 추천 속도 범위 계산</div></div>
+          </div>
+        </div>
+        <div class="fs"><div class="fs-t">⚙ <span data-i18n="kin_type"></span></div>
+          <div class="fg"><div class="fi"><select id="s_kin" onchange="updateKinUI()"><option value="corexy" data-i18n-opt="kin_corexy"></option><option value="corexz" data-i18n-opt="kin_corexz"></option><option value="cartesian" data-i18n-opt="kin_cart"></option><option value="delta" data-i18n-opt="kin_delta"></option></select></div></div>
+        </div>
+        <div class="fs"><div class="fs-t">🎯 <span data-i18n="sec_firmware"></span></div>
+          <div class="fg">
+            <div class="fi"><label>펌웨어</label><select id="s_firmware">
+              <option value="marlin_is">Marlin (Input Shaping)</option>
+              <option value="marlin_ftm">Marlin (FTM)</option>
+              <option value="klipper">Klipper</option>
+              <option value="rrf">RepRapFirmware</option>
+            </select><div class="fi-hint">결과 적용(Apply) 명령 생성에 사용</div></div>
+            <div class="fi"><label data-i18n="eeprom_save"></label><select id="s_eepromSave"><option value="no" data-i18n-opt="eeprom_no"></option><option value="yes" data-i18n-opt="eeprom_yes"></option></select><div class="fi-hint" data-i18n="eeprom_hint"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">📐 <span data-i18n="cal_title">Axis Calibration</span></div>
+          <div id="calWizard">
+            <div style="color:var(--tx2);font-size:12px;margin-bottom:8px" data-i18n="cal_desc">Maps sensor axes to printer axes.</div>
+            <div id="calStatus" style="padding:8px 10px;border-radius:6px;background:var(--bg2);margin-bottom:8px;font-size:13px">⏳ <span data-i18n="cal_ready">Press Start</span></div>
+            <div id="calProgress" style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-bottom:8px"><div id="calBar" style="height:100%;width:0%;background:var(--pri);transition:width 0.3s"></div></div>
+            <div id="calResult" style="display:none;padding:8px;border-radius:6px;background:var(--bg2);font-family:monospace;font-size:12px;line-height:1.8"></div>
+            <div class="br" style="gap:6px;margin-top:8px">
+              <button class="btn btn-pri btn-sm" id="calStartBtn" onclick="startAxisCalibration()">📐 <span data-i18n="onboard_cal">Calibrate</span></button>
+              <button class="btn btn-suc btn-sm" id="calSaveBtn" onclick="saveCalibration()" style="display:none">💾 Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="br"><button class="btn btn-err btn-sm" onclick="resetSettings()">↺ <span data-i18n="btn_reset"></span></button><div style="flex:1"></div><button class="btn btn-pri" onclick="saveSettings()">💾 <span data-i18n="btn_save"></span></button></div>
+      <div class="save-msg" id="saveStatus" style="display:none"></div>
+    </div>
+
+    <!-- ═══ 2. 고급설정 ═══ -->
+    <div id="settingsAdvanced" style="display:none">
+      <div style="color:var(--tx3);font-size:11px;margin-bottom:8px;padding:4px 8px;background:var(--bg2);border-radius:6px">
+        ⚠ 측정 알고리즘에 직접 영향. 잘 모르겠으면 기본값 유지.
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">📊 측정 설정</div>
+          <div class="fg">
+            <div class="fi"><label>X축 수렴 (Hz)</label><input type="number" id="s_pmConvX" value="1.0" step="0.1" min="0.1" max="5" style="width:70px"><div class="fi-hint">피크 주파수 표준편차 기준</div></div>
+            <div class="fi"><label>Y축 수렴 (Hz)</label><input type="number" id="s_pmConvY" value="1.0" step="0.1" min="0.1" max="5" style="width:70px"><div class="fi-hint">간접 측정 축은 느슨하게</div></div>
+            <div class="fi"><label>최소 유효 세그먼트</label><input type="number" id="s_pmMinSegs" value="200" step="50" min="50" max="5000" style="width:70px"><div class="fi-hint">자동 완료 최소 기준</div></div>
+            <div class="fi"><label>에너지 EMA α</label><input type="number" id="s_pmEmaAlpha" value="0.03" step="0.005" min="0.005" max="0.2" style="width:70px"></div>
+            <div class="fi"><label>DC 필터 α</label><input type="number" id="s_pmDcAlpha" value="0.001" step="0.0005" min="0.0001" max="0.01" style="width:80px"></div>
+            <div class="fi"><label>피크 히스토리</label><input type="number" id="s_pmPeakHist" value="8" step="1" min="3" max="20" style="width:60px"></div>
+            <div class="fi"><label>상관도 경고</label><input type="number" id="s_pmCorrWarn" value="0.8" step="0.05" min="0.3" max="1.0" style="width:70px"></div>
+            <div class="fi"><label>라이브 세그먼트</label><input type="number" id="s_liveSegs" value="2" step="1" min="1" max="10" style="width:60px"><div class="fi-hint">SSE 전송 주기. 1=12fps, 2=6fps, 3=4fps. 버벅이면 ↑</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">📐 캘리브레이션</div>
+          <div class="fg">
+            <div class="fi"><label>최소 유효 세그먼트</label><input type="number" id="s_calMinSegs" value="100" step="10" min="20" max="500" style="width:70px"></div>
+            <div class="fi"><label>에너지 게이트 ×</label><input type="number" id="s_calEnergyGate" value="3.0" step="0.5" min="1.5" max="10" style="width:70px"></div>
+            <div class="fi"><label>팬 측정</label><select id="s_calFanEnabled"><option value="off">OFF</option><option value="on">ON</option></select></div>
+            <div class="fi"><label>팬 세그먼트</label><input type="number" id="s_calFanSegs" value="50" step="10" min="20" max="200" style="width:70px"></div>
+            <div class="fi"><label>폴링 간격 (ms)</label><input type="number" id="s_calPollMs" value="20" step="5" min="10" max="100" style="width:70px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">⚡ 쉐이퍼 분석</div>
+          <div class="fg">
+            <div class="fi"><label>SCV</label><input type="number" id="s_scv" value="5.0" step="0.5" min="1" max="30"><div class="fi-hint">Square Corner Velocity. Klipper 기본 5.</div></div>
+            <div class="fi"><label>감쇠비 (ζ)</label><input type="number" id="s_damping" value="0.1" step="0.01" min="0.01" max="0.5"><div class="fi-hint">공진 감쇠. 대부분 0.05~0.15.</div></div>
+            <div class="fi"><label>목표 스무딩</label><input type="number" id="s_targetSm" value="0.12" step="0.01" min="0.05" max="0.5"><div class="fi-hint">허용 스무딩(mm). 0.05=정밀, 0.12=일반</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">🔍 노이즈 필터</div>
+          <div class="fg">
+            <div class="fi"><label>전원 주파수</label><select id="s_powerHz"><option value="60">60Hz (한국/미국)</option><option value="50">50Hz (유럽/중국)</option><option value="0">OFF</option></select></div>
+            <div class="fi"><label>PSD 노이즈 floor</label><input id="s_psdThreshold" type="number" value="0.01" min="0" max="10" step="0.001" style="width:80px"><div class="fi-hint">0.01 = ADXL 양자화 이하 차단</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">✅ 결과 판정</div>
+          <div class="fg">
+            <div class="fi"><label>최소 신뢰도 %</label><input id="d_minConf" type="number" value="15" min="0" max="100" step="5" style="width:65px"></div>
+            <div class="fi"><label>최소 가속도</label><input id="d_minAccel" type="number" value="500" min="0" max="5000" step="100" style="width:65px"></div>
+            <div class="fi"><label>PSD 수치</label><select id="d_showPsd"><option value="off">OFF</option><option value="on">ON</option></select></div>
+            <div class="fi"><label>노이즈 로그</label><select id="d_showNoise"><option value="off">OFF</option><option value="on">ON</option></select></div>
+            <div class="fi"><label>신뢰도 경고</label><select id="d_lowConfWarn"><option value="off">OFF</option><option value="on">ON</option></select></div>
+            <div class="fi"><label>데모 모드</label><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="s_demoMode"><span style="font-size:11px;color:var(--tx3)">ON</span></label></div>
+          </div>
+        </div>
+      </div>
+      <details style="margin-bottom:8px">
+        <summary style="font-size:11px;color:var(--tx3);cursor:pointer;padding:4px;border:1px dashed var(--div);border-radius:4px">🔧 디버그 옵션</summary>
+        <div class="card" style="margin-top:4px">
+          <div class="fg" style="font-size:11px">
+            <div class="fi"><label>결과 강제</label><select id="d_forceResult"><option value="off">OFF</option><option value="on">ON</option></select></div>
+            <div class="fi"><label>최소 세그먼트</label><input id="d_minSegs" type="number" value="80" min="10" max="500" step="10" style="width:65px"></div>
+          </div>
+        </div>
+      </details>
+      <div class="br" style="margin-top:4px"><button class="btn btn-out btn-sm" onclick="resetDebugDefaults()">↺ <span data-i18n="btn_reset"></span></button><div style="flex:1"></div><button class="btn btn-pri" onclick="saveDebugSettings()">💾 <span data-i18n="btn_save"></span></button></div>
+      <div class="save-msg" id="debugSaveStatus" style="display:none"></div>
+    </div>
+
+    <!-- ═══ 3. 로그 ═══ -->
+    <div id="settingsLog" style="display:none">
+      <div class="card">
+        <div class="fs"><div class="fs-t">🔬 ADXL345 Status</div>
+          <div class="br" style="flex-wrap:wrap;gap:6px;margin-bottom:6px">
+            <button class="btn btn-pri btn-sm" onclick="checkAdxlLog()">🔌 Status</button>
+            <button class="btn btn-out btn-sm" onclick="readAdxlRaw()">📊 Raw</button>
+            <button class="btn btn-sec btn-sm" onclick="document.getElementById('logAdxl').innerHTML=''">↺ Clear</button>
+          </div>
+          <div class="term"><div class="term-bar"><div class="term-dot"></div>ADXL345</div><div class="term-body" id="logAdxl"><div><span class="log-ok">></span> <span data-i18n="adxl_log_hint"></span></div></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">🐛 Debug Log</div>
+          <div class="term"><div class="term-bar"><div class="term-dot"></div>Debug</div><div class="term-body" id="logDebug"><div><span class="log-ok">></span> <span data-i18n="debug_log"></span></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 4. 시스템 ═══ -->
+    <div id="settingsSystem" style="display:none">
+      <div class="card">
+        <div class="fs"><div class="fs-t">📶 WiFi</div>
+          <div class="fg">
+            <div class="fi"><label>Mode</label>
+              <select id="s_wifiMode" onchange="document.getElementById('staFields').style.display=this.value==='sta'?'':'none'">
+                <option value="ap">AP (FEMTO-SHAPER)</option>
+                <option value="sta">STA (Join Network)</option>
+              </select>
+            </div>
+          </div>
+          <div id="staFields" style="display:none;margin-top:8px">
+            <div class="fi" style="margin-bottom:6px"><label>SSID</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input type="text" id="s_staSSID" maxlength="32" placeholder="Select or type" style="flex:1">
+                <button class="btn btn-out btn-sm" onclick="scanWifi()" id="wifiScanBtn">🔍 Scan</button>
+              </div>
+            </div>
+            <div id="wifiScanResult" style="display:none;max-height:160px;overflow-y:auto;margin-bottom:8px;border:1px solid var(--bg3);border-radius:6px"></div>
+            <div class="fi"><label>Password</label><input type="password" id="s_staPass" maxlength="64" placeholder="WiFi password"></div>
+          </div>
+          <div class="fi" style="margin-top:8px"><label>Hostname</label>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input type="text" id="s_hostname" maxlength="31" value="femto" placeholder="femto" style="flex:1" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9\-]/g,'');var p=document.getElementById('hostnamePreview');if(p)p.textContent=this.value||'femto'">
+              <span style="font-size:12px;color:var(--tx3)">.local</span>
+            </div>
+            <div class="fi-hint">mDNS: <strong id="hostnamePreview">femto</strong>.local</div>
+          </div>
+          <div id="wifiStatus" style="font-size:11px;color:var(--tx3);margin-top:6px"></div>
+          <div style="font-size:10px;color:var(--tx3);margin-top:4px">⚠ WiFi/Hostname 변경 → 💾 Save → Reboot 필요</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">🔌 GPIO Pins</div>
+          <div class="fg" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">
+            <div class="fi"><label>SCK</label><input type="number" id="s_pinSCK" value="9" min="0" max="21" style="width:50px"></div>
+            <div class="fi"><label>MISO</label><input type="number" id="s_pinMISO" value="1" min="0" max="21" style="width:50px"></div>
+            <div class="fi"><label>MOSI</label><input type="number" id="s_pinMOSI" value="0" min="0" max="21" style="width:50px"></div>
+            <div class="fi"><label>CS</label><input type="number" id="s_pinCS" value="4" min="0" max="21" style="width:50px"></div>
+            <div class="fi"><label>INT1</label><input type="number" id="s_pinINT1" value="3" min="0" max="21" style="width:50px"></div>
+            <div class="fi"><label>LED</label><input type="number" id="s_pinLED" value="8" min="0" max="21" style="width:50px"></div>
+            <div class="fi"><label>RST</label><input type="number" id="s_pinReset" value="10" min="0" max="21" style="width:50px"></div>
+            <div class="fi"><label data-i18n="sample_rate">Rate</label><select id="s_sampleRate"><option value="3200" selected>3200 Hz</option><option value="1600">1600</option><option value="800">800</option></select></div>
+          </div>
+          <div style="font-size:10px;color:var(--tx3);margin-top:4px">⚠ <span data-i18n="gpio_warn"></span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fs"><div class="fs-t">ℹ System Info</div>
+          <div id="sysInfo" style="font-size:12px;color:var(--tx2);line-height:1.8">
+            <div>FEMTO SHAPER v1.0</div>
+            <div id="sysHeap"></div>
+            <div id="sysUptime"></div>
+            <div>mDNS: <a id="sysHostLink" href="http://femto.local" style="color:var(--pri)">femto.local</a></div>
+          </div>
+          <div class="br" style="margin-top:8px;gap:6px">
+            <button class="btn btn-pri" onclick="saveSettings()">💾 <span data-i18n="btn_save">Save</span></button>
+            <div style="flex:1"></div>
+            <button class="btn btn-sec btn-sm" onclick="doReboot()">🔄 Reboot</button>
+            <button class="btn btn-err btn-sm" onclick="doFactoryReset()">⚠ Reset</button>
+          </div>
+          <div class="save-msg" id="sysSaveStatus" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /pg-settings -->
+
+</div><!-- /mc -->
+
+<!-- 모듈 로드 순서: 의존성 순 -->
+<script src="/i18n.js"></script>
+<script src="/led.js"></script>
+<script src="/shaper.js"></script>
+<script src="/kinematics.js"></script>
+<script src="/chart.min.js"></script>
+<script src="/charts.js"></script>
+<script src="/filter.js"></script>
+<script src="/live.js"></script>
+<script src="/validator.js"></script>
+<script src="/diagnostic.js"></script>
+<script src="/settings.js"></script>
+<script src="/measure.js"></script>
+<script src="/app.js"></script>
+<script src="/report.js"></script>
+</body>
+</html>
