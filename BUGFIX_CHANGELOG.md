@@ -2073,3 +2073,22 @@ save-reboot-restore, live + sampleRate change (the hit), settings
 apply. Running total **201 bugs fixed** across rounds 1-31.
 
 ---
+
+## Rounds 32-51 — 20-scenario user-flow sweep (2026-04-22)
+
+See `BUGFIX_COMMENT_ABSORB_ROUND32-51.md` for the per-scenario table
+and the single bug write-up.
+
+| # | File | Class | Summary |
+|---|---|---|---|
+| BF-R32-001 (R40) | `src/main.cpp` activity watchdog | MEDIUM | STA-mode 5-min idle deep sleep ignored active browser sessions; now treats `WL_CONNECTED` in STA mode as keep-awake |
+
+Walked 20 distinct scenarios (first boot, calibration reload, save NVS
+fail, measurement tab-close, WiFi disconnect, save reboot, multi-tab,
+factory reset, deep sleep, STA fallback, ADXL runtime disconnect, heap
+low, big SSE payload, report export, LED sync, language switch, browser
+back, chart lifecycle, sleep-wake, settings boundary). 1 real bug, 19
+clean / design-choice. Running total **202 bugs fixed** across rounds
+1-51.
+
+---

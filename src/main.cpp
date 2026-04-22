@@ -2259,8 +2259,14 @@ void loop() {
   }
 
   // ============ Activity watchdog (5-minute idle deep-sleep) ============
-  // Any connected client or active measurement postpones sleep.
-  if (WiFi.softAPgetStationNum() > 0 || measState != MEAS_IDLE) {
+  // Any connected client or active measurement postpones sleep. For STA
+  // mode, `softAPgetStationNum()` returns 0 even when a user is actively
+  // browsing the UI via the router - pre-fix, STA users dropped into
+  // deep sleep after 5 min of no click-activity even with a browser tab
+  // open on them. Treat "STA is associated with an AP" as keep-awake so
+  // remote monitoring sessions don't silently die.
+  bool staAssociated = (strcmp(cfg.wifiMode,"sta")==0 && WiFi.status() == WL_CONNECTED);
+  if (WiFi.softAPgetStationNum() > 0 || measState != MEAS_IDLE || staAssociated) {
     lastActivityMs = millis();
   }
   // Sleep after 5 minutes of no activity
