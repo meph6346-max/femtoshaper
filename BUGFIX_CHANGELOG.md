@@ -2038,3 +2038,23 @@ lap 2 found 2 functional state-leak fixes, lap 3 found 1 MEDIUM fix.
 Running total **200 bugs fixed** across rounds 1-29.
 
 ---
+
+## Round 30 — Cross-file untracked-region audit (2026-04-22)
+
+See `BUGFIX_COMMENT_ABSORB_ROUND30.md` for the per-item writeup.
+
+Verification-only round. Ran Explore sub-agents across
+`data/shaper.js` (1136 lines), `data/kinematics.js`, `data/validator.js`,
+`data/diagnostic.js`, `data/report.js`, `data/i18n.js`, and `src/dsp.h`
+(901 lines). Sub-agents reported 11 suspected defects; each was
+verified against field-population call sites and **all 11 were false
+positives** (producers guarantee the fields the consumers read).
+
+**Running total remains 200 bugs** — no new fixes. After 30 rounds
+covering all known pattern families, the chain appears truly
+exhausted. Notable finding: `_zoom` field is referenced as consumer
+in `validator.js:111` and `report.js:71-75` but never assigned
+anywhere in the codebase — dead branch (left as-is, not a functional
+bug).
+
+---
