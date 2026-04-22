@@ -1023,15 +1023,25 @@ void saveBgPsdToNVS() {
   float buf[DSP_NBINS];
   memset(buf, 0, sizeof(buf));
   for (int i = 0; i < binCount; i++) buf[i] = dspBgPsd[i + binMin];
-  prefs.begin("femto_bg", false);
+  // Check begin() so an NVS mount failure is logged rather than silently
+  // skipping the save. Called from boot and during sampleRate change.
+  if (!prefs.begin("femto_bg", false)) {
+    Serial.println("[NVS] bgPsd save FAILED: cannot open femto_bg namespace");
+    return;
+  }
   prefs.clear();
   prefs.putBool("valid", true);
   prefs.putInt("sampleRate", cfg.sampleRate);
   prefs.putInt("binMin", binMin);
   prefs.putInt("binCount", binCount);
   prefs.putInt("segs", dspBgSegs);
-  prefs.putBytes("psd", buf, binCount * sizeof(float));
+  size_t psdBytes = prefs.putBytes("psd", buf, binCount * sizeof(float));
   prefs.end();
+  if (psdBytes != (size_t)(binCount * sizeof(float))) {
+    Serial.printf("[NVS] bgPsd save FAILED: wrote %u/%u bytes\n",
+      (unsigned)psdBytes, (unsigned)(binCount * sizeof(float)));
+    return;
+  }
   Serial.printf("[NVS] bgPsd saved (%d bins)\n", binCount);
 }
 
@@ -1170,7 +1180,13 @@ static wifi_power_t txPower = WIFI_POWER_8_5dBm;  // default WiFi TX power (over
 
 
 void saveMeasPsdToNVS() {
-  prefs.begin("femto_mpsd", false);
+  // Check begin() so an NVS failure is logged rather than silently skipped.
+  // Called from handleMeasure print_stop; if this fails the user's
+  // measurement snapshot is lost across reboot.
+  if (!prefs.begin("femto_mpsd", false)) {
+    Serial.println("[NVS] measPsd save FAILED: cannot open femto_mpsd namespace");
+    return;
+  }
   prefs.clear();
   prefs.putInt("sampleRate", measSampleRate);
   prefs.putInt("binMin", measBinMin);
@@ -1179,8 +1195,14 @@ void saveMeasPsdToNVS() {
   prefs.putBytes("py", measPsdY, measBinCount * sizeof(float));
   prefs.putBytes("vx", measVarX, measBinCount * sizeof(float));
   prefs.putBytes("vy", measVarY, measBinCount * sizeof(float));
-  prefs.putBool("valid", true);
+  // Write "valid" last so if the putBytes above ran out of NVS space, we
+  // won't end up with valid=true on incomplete data.
+  size_t validBytes = prefs.putBool("valid", true);
   prefs.end();
+  if (validBytes == 0) {
+    Serial.println("[NVS] measPsd save FAILED: valid-flag write returned 0");
+    return;
+  }
   Serial.printf("[NVS] measPsd saved (%d bins)\n", measBinCount);
 }
 
