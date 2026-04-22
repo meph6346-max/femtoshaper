@@ -999,7 +999,21 @@ async function updateSysInfo() {
 }
 
 function doReboot() { if (confirm('Reboot ESP32?')) fetch('/api/reboot',{method:'POST'}); }
-function doFactoryReset() { if (confirm('Reset ALL settings?')) { resetSettings(); saveSettings(); } }
+// NOTE: the HTML button is labelled "⚠ Reset" (not "Factory Reset"). This
+// function ONLY resets the form fields to defaults and saves them via
+// /api/config. It does NOT wipe NVS (measurement snapshot, bgPsd, saved
+// result all stay). True factory reset is `POST /api/reset?all=1` and has
+// no UI exposure yet. The old name `doFactoryReset` was misleading - use
+// this name so future readers see the actual scope.
+function doResetSettingsToDefaults() {
+  if (confirm('Reset all form settings to defaults? (Measurement data and saved results are kept.)')) {
+    resetSettings();
+    saveSettings();
+  }
+}
+// Backwards compat for any inline HTML that still references the old name.
+// Can be removed once data/index.html is updated.
+const doFactoryReset = doResetSettingsToDefaults;
 
 // ADXL ( onclick )
 async function checkAdxlLog() {

@@ -8,6 +8,25 @@
 
 ---
 
+### 2026-04-22 round 19 (Claude Opus 4.7): HTML/UI audit — wheel 1/3 of continuous chain pass
+
+R18 caught absorbed-code in JS. R19 audits HTML which was never
+scanned before.
+
+**Fixed (2):**
+
+- **MEDIUM**: `<a href="/manual">` dead link in app bar. Server had no
+  handler; onNotFound served the app itself as "manual". Removed.
+- **LOW**: `doFactoryReset()` name didn't match scope - only reset
+  form fields + saved via /api/config, didn't wipe NVS namespaces
+  (measurement data, bgPsd, saved result all kept). Renamed to
+  `doResetSettingsToDefaults`, clearer confirm message, backwards-
+  compat alias left. Updated HTML button.
+
+**Running total:** 186 (before) + 2 = **188 bugs fixed**.
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND19.md`](./BUGFIX_COMMENT_ABSORB_ROUND19.md).
+
 ### 2026-04-22 round 18 (Claude Opus 4.7): absorbed-code bug found in JavaScript
 
 Chasing the chain back to where this whole investigation started.

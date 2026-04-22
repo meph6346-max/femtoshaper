@@ -13,7 +13,10 @@
   <div class="ab-logo">F</div>
   <div class="ab-t">FEMTO SHAPER <small>v1.0</small></div>
   <div class="ab-sp"></div>
-  <a href="/manual" target="_blank" class="ab-link" title="User Manual">📖</a>
+  <!-- Removed dead /manual link: no server handler and the onNotFound fallback
+       served the app itself in a new tab, which confused users. If a manual
+       page is added back, wire a real server.on("/manual", ...) entry or
+       point this to a hosted URL. -->
   <div class="ab-st" id="adxlStatus" onclick="switchTab('settings');document.getElementById('logAdxl')?.scrollIntoView({behavior:'smooth'})" style="cursor:pointer" title="ADXL345 상태 — 클릭하여 상세 확인">
     <span id="adxlDot">●</span> <span id="adxlLabel">ADXL345</span>
   </div>
@@ -421,7 +424,7 @@
             <button class="btn btn-pri" onclick="saveSettings()">💾 <span data-i18n="btn_save">Save</span></button>
             <div style="flex:1"></div>
             <button class="btn btn-sec btn-sm" onclick="doReboot()">🔄 Reboot</button>
-            <button class="btn btn-err btn-sm" onclick="doFactoryReset()">⚠ Reset</button>
+            <button class="btn btn-err btn-sm" onclick="doResetSettingsToDefaults()" title="Reset form fields to defaults (keeps measurement data and saved results)">⚠ Reset</button>
           </div>
           <div class="save-msg" id="sysSaveStatus" style="display:none"></div>
         </div>
