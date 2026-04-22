@@ -8,6 +8,42 @@
 
 ---
 
+### 2026-04-22 follow-up (Claude): 7 more absorbed-code bugs recovered after Codex's round
+
+After Codex fixed `if (dspDualNewSeg)` and `if (liveSSEClient.connected())`
+guards (commit 220ec07), ran another aggressive sweep across main.cpp using
+pattern matching for code-like constructs inside `//` comments.
+
+**Found and fixed (7 more absorbed-code bugs, all CRITICAL for compilation):**
+
+- line ~286: `static void adxlDrainFifo() {` declaration swallowed into prior
+  line's comment - function definition was orphaned, referenced by
+  `adxlUpdate()` on 2 sites. Without this, function definition begins
+  inside a comment -> undefined reference.
+- line ~443: `bool saveConfig();` forward declaration swallowed - required by
+  `loadConfig()` first-boot path.
+- line ~955: `static wifi_power_t txPower = WIFI_POWER_8_5dBm;` swallowed -
+  used in 4 WiFi.setTxPower() calls. Compile error: undefined `txPower`.
+- line ~958: `enum MeasState { MEAS_IDLE, MEAS_PRINT, MEAS_DONE };` swallowed
+  - `static MeasState measState` declaration immediately below used this
+  type. Compile error: undefined `MeasState`.
+- line ~976: `#define MEAS_MAX_BINS DSP_NBINS` swallowed - used as array size
+  for 6 static arrays (`measPsdX/Y`, `measVarX/Y`, `measJerkX/Y`). Compile
+  error: undefined macro.
+- line ~271: `spiRead(REG_INT_SOURCE);` swallowed - clears pending IRQ
+  before attachInterrupt (prevents spurious first trigger).
+- line ~278: `int16_t tx, ty, tz;` swallowed - used by `spiReadXYZ(tx,ty,tz)`
+  for the init-time sanity read. Compile error: undefined locals.
+- line ~1409: `{ ... }` scoped block for NVS legacy migration - opening `{`,
+  `bool hasLegacy = prefs.isKey("b0");`, `prefs.clear();` all swallowed.
+  Scoped block body orphaned.
+
+**Tooling added: `scripts/check_brace_balance.py`** - counts `{`/`}` and
+`(`/`)` in C/C++/JS while respecting string and comment context. Used as a
+sanity check after comment cleanup.
+
+**Running total:** 117 (before this round) + 7 = **124 bugs fixed**.
+
 ### 2026-04-22 follow-up (Codex): SSE guard restore + English comment cleanup
 
 This pass focused on two things: recovering comment-swallowed runtime guards and
