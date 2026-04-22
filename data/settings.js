@@ -1,11 +1,11 @@
 // ============ FEMTO SHAPER Settings v0.8 ============
-// G코드 생성기 제거됨 → 각 탭에서 직접 다운로드
-// 프린터 설정 바(pcb) 업데이트 함수 포함
-// 모든 주석 한국어
+// G
+// (pcb)
+//
 
-// ── 설정 저장 (ESP32 NVS) ──────────────────────────────
+// (ESP32 NVS)
 function saveSettings(silent) {
-  // BUG FIX: 설정이 로드되지 않은 상태에서 저장 → NVS 초기화 방지
+  // BUG FIX: NVS
   if (!_settingsLoaded) {
     const saveStatus = document.getElementById('saveStatus');
     if (saveStatus) {
@@ -22,7 +22,7 @@ function saveSettings(silent) {
     feedrate:   parseInt(document.getElementById('s_feedrate').value),
     kin:        document.getElementById('s_kin').value,
     sampleRate: parseInt(document.getElementById('s_sampleRate').value),
-    axesMap: 'custom',  // 캘리브레이션 전용
+    axesMap: 'custom',  //
     firmware:   document.getElementById('s_firmware')?.value  || 'marlin_is',
     eepromSave: document.getElementById('s_eepromSave')?.value === 'yes',
     scv:        parseFloat(document.getElementById('s_scv')?.value || '5.0'),
@@ -45,7 +45,7 @@ function saveSettings(silent) {
     liveSegs:   parseInt(document.getElementById('s_liveSegs')?.value || '2'),
   };
 
-  // ESP32 NVS에 설정 저장
+  // ESP32 NVS
   const saveStatus = silent ? null : document.getElementById('saveStatus');
   if (saveStatus) { saveStatus.textContent = t('saving'); saveStatus.className = 'save-msg save-pending'; saveStatus.style.display = 'block'; }
 
@@ -59,19 +59,19 @@ function saveSettings(silent) {
       if (saveStatus) { saveStatus.textContent = '✓ '+t('save_ok'); saveStatus.className = 'save-msg save-ok'; }
       const ob = document.getElementById('onboardBanner'); if (ob) ob.style.display = 'none';
       updateAllPcb();
-      // minValidSegs 동기화
+      // minValidSegs
       fetch('/api/debug', { method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ minValidSegs: minSegs }) }).catch(e => console.warn('API:', e.message));
     })
     .catch((e) => {
       if (saveStatus) { saveStatus.textContent = '✗ '+t('save_fail')+e.message; saveStatus.className = 'save-msg save-err'; }
     });
-  // 3초 후 메시지 숨김
+  // 3
   setTimeout(() => { if (saveStatus) saveStatus.style.display = 'none'; }, 4000);
 }
 
-// ── 설정 로드 (ESP32 NVS) ──────────────────────────────
-let _settingsLoaded = false;  // 로드 완료 플래그 — 미완료 시 저장 차단
+// (ESP32 NVS)
+let _settingsLoaded = false;  //
 
 function loadSettings(retryCount) {
   if (retryCount === undefined) retryCount = 0;
@@ -81,7 +81,7 @@ function loadSettings(retryCount) {
       return r.json();
     })
     .then(cfg => {
-      // !== undefined 가드: 0, false, '' 값도 정상 로드
+      // !== undefined : 0, false, ''
       const el = (id) => document.getElementById(id);
       if (cfg.buildX    !== undefined && el('s_buildX'))    el('s_buildX').value = cfg.buildX;
       if (cfg.buildY    !== undefined && el('s_buildY'))    el('s_buildY').value = cfg.buildY;
@@ -107,7 +107,7 @@ function loadSettings(retryCount) {
       // WiFi
       if (cfg.wifiMode && el('s_wifiMode')) {
         el('s_wifiMode').value = cfg.wifiMode;
-        // filterPowerHz 동기화
+        // filterPowerHz
         if (cfg.powerHz !== undefined && el('s_powerHz')) el('s_powerHz').value = cfg.powerHz;
         if (cfg.liveSegs !== undefined && el('s_liveSegs')) el('s_liveSegs').value = cfg.liveSegs;
         if (typeof filterPowerHz !== 'undefined') filterPowerHz = cfg.powerHz || 60;
@@ -122,7 +122,7 @@ function loadSettings(retryCount) {
         const link = document.getElementById('sysHostLink');
         if (link) { link.href = 'http://'+cfg.hostname+'.local'; link.textContent = cfg.hostname+'.local'; }
       }
-      // password: don't load for security — show placeholder only
+      // password: don't load for security show placeholder only
       // WiFi status
       const ws = document.getElementById('wifiStatus');
       if (ws) {
@@ -135,26 +135,26 @@ function loadSettings(retryCount) {
       updateAllPcb();
       updateKinUI();
 
-      // v0.9: 온보딩 배너 (캘리브레이션 미완료)
+      // v0.9: ( )
       const needsCal = !cfg.useCalWeights;
       const banner = document.getElementById('onboardBanner');
       if (banner) banner.style.display = needsCal ? '' : 'none';
 
-      // v0.9: 캘리브레이션 가중치를 전역에 로드
+      // v0.9:
       if (cfg.useCalWeights && cfg.calWx && cfg.calWy) {
         _calWeights = { wx: cfg.calWx, wy: cfg.calWy, wz: null };
       }
-      // v1.0: 팬 피크 로드 (캘리브레이션에서 감지)
+      // v1.0: ( )
       if (cfg.fanPeaks && typeof loadFanPeaks === 'function') {
         loadFanPeaks(cfg.fanPeaks);
       }
     })
     .catch((e) => {
       if (retryCount < 3) {
-        // 캡티브 포털 redirect 등으로 실패 → 2초 후 재시도
+        // redirect 2
         setTimeout(() => loadSettings(retryCount + 1), 2000);
       } else {
-        // 3회 실패 → 경고
+        // 3
         appLog('logShaper', '<span class="log-err">⚠</span> ' + t('log_settings_fail') + '');
         _settingsLoaded = false;
       }
@@ -163,7 +163,7 @@ function loadSettings(retryCount) {
     });
 }
 
-// ── 초기화 ────────────────────────────────────────────
+//
 function resetSettings() {
   document.getElementById('s_buildX').value = 120;
   document.getElementById('s_buildY').value = 120;
@@ -171,15 +171,15 @@ function resetSettings() {
   document.getElementById('s_feedrate').value = 200;
   document.getElementById('s_kin').value = 'corexy';
   document.getElementById('s_sampleRate').value = 3200;
-  // axesMap: 캘리브레이션 전용
-  // Phase 5 기본값
+  // axesMap:
+  // Phase 5
   if (document.getElementById('s_scv'))      document.getElementById('s_scv').value = '5.0';
   if (document.getElementById('s_damping'))  document.getElementById('s_damping').value = '0.1';
   if (document.getElementById('s_targetSm')) document.getElementById('s_targetSm').value = '0.12';
   if (document.getElementById('s_firmware')) document.getElementById('s_firmware').value = 'marlin_is';
   if (document.getElementById('s_eepromSave')) document.getElementById('s_eepromSave').value = 'no';
   if (document.getElementById('s_demoMode')) document.getElementById('s_demoMode').checked = false;
-  // GPIO 기본값
+  // GPIO
   if (document.getElementById('s_pinSCK'))   document.getElementById('s_pinSCK').value = '9';
   if (document.getElementById('s_pinMISO'))  document.getElementById('s_pinMISO').value = '1';
   if (document.getElementById('s_pinMOSI'))  document.getElementById('s_pinMOSI').value = '0';
@@ -192,11 +192,11 @@ function resetSettings() {
 }
 
 
-// ── 프린터 설정 바 (pcb) 업데이트 ────────────────────
-/**
- * 각 탭에 표시되는 프린터 설정 요약 바 갱신
- * 설정 변경 시마다 호출
- */
+// (pcb)
+/* *
+*
+*
+  */
 function getPrinterConfigText() {
   const bx = document.getElementById('s_buildX')?.value || 120;
   const by = document.getElementById('s_buildY')?.value || 120;
@@ -214,11 +214,11 @@ function getPrinterConfigText() {
 function updateAllPcb() {
   const text = getPrinterConfigText();
 
-  // Shaper 탭 설정 바
+  // Shaper
   const pcbText = document.getElementById('pcbText');
   if (pcbText) pcbText.textContent = text;
 
-  // Diagnostic 서브탭 설정 바들
+  // Diagnostic
   ['Belt', 'Carriage', 'Frame', 'Symmetry'].forEach(name => {
     const el = document.getElementById(`pcb${name}Text`) ||
                document.getElementById(`pcb${name}`)?.querySelector('span');
@@ -227,8 +227,8 @@ function updateAllPcb() {
 }
 
 
-// ── 설정 읽기 헬퍼 ────────────────────────────────────
-// 다른 모듈에서 현재 설정값을 읽을 때 사용
+//
+//
 function getCfgScv()      { return parseFloat(document.getElementById('s_scv')?.value      || '5.0'); }
 function getCfgDamping()  { return parseFloat(document.getElementById('s_damping')?.value  || '0.1'); }
 function getCfgTargetSm() { return parseFloat(document.getElementById('s_targetSm')?.value || '0.12'); }
@@ -237,7 +237,7 @@ function getCfgFeedrate() { return parseInt(document.getElementById('s_feedrate'
 function getCfgBuildX()   { return parseInt(document.getElementById('s_buildX')?.value      || '250'); }
 function getCfgBuildY()   { return parseInt(document.getElementById('s_buildY')?.value      || '250'); }
 function getCfgMinSegs()  { return parseInt(document.getElementById('s_minSegs')?.value || '100'); }
-// v1.0: gcode.js에서 이동 — 리포트/분석에서 사용
+// v1.0: gcode.js /
 function getSettingsCfg() {
   return {
     buildX: parseInt(document.getElementById('s_buildX')?.value||'250'),
@@ -253,25 +253,25 @@ function getSettingsCfg() {
   };
 }
 
-// ── 디버그 설정 ──────────────────────────────────────────
-// 디버그 파라미터는 NVS가 아닌 런타임 변경 (재부팅 시 기본값 복원)
+//
+// NVS ( )
 
-// ── 디버그 설정 — localStorage 영구 저장 ──
+// localStorage
 const _debugDefaults = {
   LowConfWarn:true, ShowNoise:false, ForceResult:false, ShowPsd:false,
   SnrGate:8, AbsMult:5, BgRatio:3.0, HarmRange:6.25, HarmCount:4, FloorPct:0.3,
   SnrOn:true, AbsOn:true, BgOn:true, HarmOn:true, HfCut:true,
   MinSegs:80, MinConf:15, MinAccel:500,
-  // v1.0: Print Measure 파라미터
+  // v1.0: Print Measure
   PmConvX:1.0, PmConvY:1.0, PmMinSegs:200,
   PmEmaAlpha:0.03, PmDcAlpha:0.001, PmPeakHist:8, PmCorrWarn:0.8,
-  // v1.0: 캘리브레이션 파라미터
+  // v1.0:
   CalMinSegs:100, CalEnergyGate:3.0, CalFanEnabled:false, CalFanSegs:50, CalPollMs:20,
 };
-// Print Measure 공개 변수 (kinematics.js, measure.js에서 참조)
+// Print Measure (kinematics.js, measure.js )
 var pmConvX = 1.0, pmConvY = 1.0, pmMinSegs = 200;
 var pmEmaAlpha = 0.03, pmDcAlpha = 0.001, pmPeakHist = 8, pmCorrWarn = 0.8;
-// 캘리브레이션 변수
+//
 var calMinSegs = 100, calEnergyGate = 3.0, calFanEnabled = false, calFanSegs = 50, calPollMs = 20;
 
 function _loadDebugFromStorage() {
@@ -298,7 +298,7 @@ function _loadDebugFromStorage() {
     if (d.MinSegs !== undefined) debugMinSegs = d.MinSegs;
     if (d.MinConf !== undefined) debugMinConf = d.MinConf;
     if (d.MinAccel !== undefined) debugMinAccel = d.MinAccel;
-    // v1.0: PM 파라미터
+    // v1.0: PM
     if (d.PmConvX !== undefined) pmConvX = d.PmConvX;
     if (d.PmConvY !== undefined) pmConvY = d.PmConvY;
     if (d.PmMinSegs !== undefined) pmMinSegs = d.PmMinSegs;
@@ -306,7 +306,7 @@ function _loadDebugFromStorage() {
     if (d.PmDcAlpha !== undefined) pmDcAlpha = d.PmDcAlpha;
     if (d.PmPeakHist !== undefined) pmPeakHist = d.PmPeakHist;
     if (d.PmCorrWarn !== undefined) pmCorrWarn = d.PmCorrWarn;
-    // 캘리브레이션
+    //
     if (d.CalMinSegs !== undefined) calMinSegs = d.CalMinSegs;
     if (d.CalEnergyGate !== undefined) calEnergyGate = d.CalEnergyGate;
     if (d.CalFanEnabled !== undefined) calFanEnabled = d.CalFanEnabled;
@@ -330,19 +330,19 @@ function _saveDebugToStorage() {
   } catch(e) {}
 }
 
-// v1.0: 키네마틱 변경 시 PM 기본값 업데이트
+// v1.0: PM
 function updatePmDefaultsForKin() {
   const kin = getCfgKin();
   const p = typeof getKinProfile === 'function' ? getKinProfile(kin) : null;
   if (!p) return;
   const el = (id) => document.getElementById(id);
-  // 키네마틱 기본값을 placeholder로 표시 (사용자가 변경 안 했으면 적용)
+  // placeholder ( )
   if (el('s_pmConvX')) el('s_pmConvX').placeholder = p.axes.x.convergenceHz;
   if (el('s_pmConvY')) el('s_pmConvY').placeholder = p.axes.y.convergenceHz;
   if (el('s_pmMinSegs')) el('s_pmMinSegs').placeholder = Math.max(p.axes.x.minActiveSegs, p.axes.y.minActiveSegs);
 }
 
-// PM UI ↔ 변수 동기
+// PM UI
 function syncPmFromUI() {
   const el = (id) => document.getElementById(id);
   pmConvX = parseFloat(el('s_pmConvX')?.value || pmConvX);
@@ -353,7 +353,7 @@ function syncPmFromUI() {
   pmPeakHist = parseInt(el('s_pmPeakHist')?.value || pmPeakHist);
   pmCorrWarn = parseFloat(el('s_pmCorrWarn')?.value || pmCorrWarn);
   if (el('d_showPsd')) debugShowPsd = el('d_showPsd').value === 'on';
-  // 캘리브레이션
+  //
   calMinSegs = parseInt(el('s_calMinSegs')?.value || calMinSegs);
   calEnergyGate = parseFloat(el('s_calEnergyGate')?.value || calEnergyGate);
   calFanEnabled = (el('s_calFanEnabled')?.value || 'on') === 'on';
@@ -371,7 +371,7 @@ function syncPmToUI() {
   if (el('s_pmPeakHist')) el('s_pmPeakHist').value = pmPeakHist;
   if (el('s_pmCorrWarn')) el('s_pmCorrWarn').value = pmCorrWarn;
   if (el('d_showPsd')) el('d_showPsd').value = debugShowPsd ? 'on' : 'off';
-  // 캘리브레이션
+  //
   if (el('s_calMinSegs')) el('s_calMinSegs').value = calMinSegs;
   if (el('s_calEnergyGate')) el('s_calEnergyGate').value = calEnergyGate;
   if (el('s_calFanEnabled')) el('s_calFanEnabled').value = calFanEnabled ? 'on' : 'off';
@@ -382,7 +382,7 @@ function syncPmToUI() {
 let debugLowConfWarn = true;
 
 let debugShowNoise   = false;
-let debugShowPsd     = false;  // PSD Y축 수치 표시
+let debugShowPsd     = false;  // PSD Y
 let debugForceResult = false;
 let debugSnrGate     = 8;
 let debugAbsMult     = 5;
@@ -399,7 +399,7 @@ let debugMinSegs     = 80;
 let debugMinConf     = 15;
 let debugMinAccel    = 500;
 
-// 페이지 로드 시 localStorage에서 복원
+// localStorage
 _loadDebugFromStorage();
 
 function switchSettingsTab(tab) {
@@ -409,7 +409,7 @@ function switchSettingsTab(tab) {
     const el = document.getElementById(ids[i]);
     if (el) el.style.display = (t === tab) ? '' : 'none';
   });
-  // 진단 탭과 동일 스타일: .stab.active
+  // : .stab.active
   document.querySelectorAll('#pg-settings > .stb .stab').forEach((b, i) => {
     b.classList.toggle('active', tabs[i] === tab);
   });
@@ -438,7 +438,7 @@ function syncDebugUI() {
   if (el('d_minSegs'))   el('d_minSegs').value    = debugMinSegs;
   if (el('d_minConf'))   el('d_minConf').value    = debugMinConf;
   if (el('d_minAccel'))  el('d_minAccel').value   = debugMinAccel;
-  // v1.0: PM 설정 동기
+  // v1.0: PM
   syncPmToUI();
   updatePmDefaultsForKin();
 }
@@ -464,14 +464,14 @@ async function saveDebugSettings() {
   debugMinSegs     = Math.max(10, parseInt(document.getElementById('d_minSegs')?.value||'80'));
   debugMinConf     = Math.max(0, parseInt(document.getElementById('d_minConf')?.value||'15'));
   debugMinAccel    = Math.max(0, parseInt(document.getElementById('d_minAccel')?.value||'500'));
-  // v1.0: PM 파라미터 저장
+  // v1.0: PM
   syncPmFromUI();
 
   appLog('logDebug', '<span class="log-ok">\u2713</span> SNR='+debugSnrGate+' abs\xd7'+debugAbsMult+' bg='+debugBgRatio+' harm='+debugHarmRange+'Hz\xd7'+debugHarmCount);
   appLog('logDebug', '<span class="log-ok">\u2713</span> Gates: snr='+debugSnrOn+' abs='+debugAbsOn+' bg='+debugBgOn+' harm='+debugHarmOn+' hf='+debugHfCut);
   appLog('logDebug', '<span class="log-ok">\u2713</span> Valid: segs\u2265'+debugMinSegs+' conf\u2265'+debugMinConf+'% accel\u2265'+debugMinAccel);
-  _saveDebugToStorage();  // localStorage 영구 저장
-  // Advanced 탭의 s_ 필드도 NVS에 저장 (scv, damping, targetSm, minSegs, powerHz)
+  _saveDebugToStorage();  // localStorage
+  // Advanced s_ NVS (scv, damping, targetSm, minSegs, powerHz)
   saveSettings(true);  // silent=true
   const st = document.getElementById('debugSaveStatus');
   if (st) { st.textContent = '\u2713 Applied'; st.className = 'save-msg save-ok'; st.style.display = 'block'; }
@@ -488,21 +488,21 @@ function resetDebugDefaults() {
   ['d_forceResult'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='off';});
   const th = document.getElementById('s_psdThreshold'); if (th) th.value = '0.01';
   filterPsdThreshold = 0.01;
-  saveDebugSettings();  // 변수 적용 + localStorage 저장
+  saveDebugSettings();  // + localStorage
   appLog('logDebug', `<span class="log-ok">\u21ba</span> ${t('log_debug_reset')}`);
 }
 
-// ── 축 캘리브레이션 위저드 ──────────────────────────────
-// 벡터 투영 방식: 어떤 설치 각도에서도 정확한 축 매핑
-// 결과: printerX = wxX·ax + wxY·ay + wxZ·az (6개 가중치)
+//
+// :
+// : printerX = wxX ax + wxY ay + wxZ az (6 )
 let _calWeights = null; // {wx:[wxX,wxY,wxZ], wy:[wyX,wyY,wyZ]}
 
-// ══════════════════════════════════════════════════════
-// v1.0 캘리브레이션 v2 — 공분산 기반 + 움직임 감지 + 팬 측정
-// 센서 부착 각도 무관, 모든 설정은 설정 페이지에서 변경 가능
-// ══════════════════════════════════════════════════════
+//
+// v1.0 v2 + +
+// ,
+//
 
-// ── 벡터 유틸 ────────────────────────────────────────
+//
 function vecLen(v){ return Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]); }
 function vecNorm(v){ var l=vecLen(v); return l>1e-12 ? [v[0]/l,v[1]/l,v[2]/l] : [0,0,0]; }
 function vecDot(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
@@ -510,9 +510,9 @@ function vecSub(a,b){ return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]; }
 function vecScale(v,s){ return [v[0]*s,v[1]*s,v[2]*s]; }
 function vecCross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
 
-// ── 공분산 행렬 → 주성분 (Power Iteration) ───────────
+// (Power Iteration)
 function covarianceEigen(samples, mean) {
-  // 3×3 공분산 행렬 계산
+  // 3 3
   var n = samples.length;
   if (n < 5) return [1,0,0];
   var c00=0,c01=0,c02=0,c11=0,c12=0,c22=0;
@@ -522,8 +522,8 @@ function covarianceEigen(samples, mean) {
     c11+=dy*dy; c12+=dy*dz; c22+=dz*dz;
   }
   c00/=n; c01/=n; c02/=n; c11/=n; c12/=n; c22/=n;
-  // Power iteration: 최대 고유값의 고유벡터
-  var v = [1, 0.5, 0.3]; // 초기 벡터 (대칭 방지)
+  // Power iteration:
+  var v = [1, 0.5, 0.3]; // ( )
   for (var iter=0; iter<20; iter++) {
     var nv = [c00*v[0]+c01*v[1]+c02*v[2], c01*v[0]+c11*v[1]+c12*v[2], c02*v[0]+c12*v[1]+c22*v[2]];
     var l = vecLen(nv);
@@ -533,9 +533,9 @@ function covarianceEigen(samples, mean) {
   return v;
 }
 
-// ── Gram-Schmidt 직교화 (R35: 특이점 가드 포함) ──────────────
+// Gram-Schmidt (R35: )
 function gramSchmidt(gVec, xVec, yVec) {
-  // 중력 벡터 유효성 (수평 설치 방지)
+  // ( )
   var gMag = vecLen(gVec);
   if (!isFinite(gMag) || gMag < 1e-3) {
     return { error: 'gravity_zero', wx:[1,0,0], wy:[0,1,0], wz:[0,0,1], ortho:1, angleXY:0, xMag:0, yMag:0 };
@@ -554,7 +554,7 @@ function gramSchmidt(gVec, xVec, yVec) {
     return { error: 'y_collinear_with_x', wx:xHat, wy:[0,1,0], wz:zHat, ortho:1, angleXY:0, xMag:xMag, yMag:0 };
   }
   var yHat = vecNorm(yPerp);
-  // NaN 최종 검증
+  // NaN
   for (var k=0; k<3; k++) {
     if (!isFinite(xHat[k]) || !isFinite(yHat[k]) || !isFinite(zHat[k])) {
       return { error: 'nan_in_result', wx:[1,0,0], wy:[0,1,0], wz:[0,0,1], ortho:1, angleXY:0, xMag:0, yMag:0 };
@@ -580,11 +580,11 @@ async function startAxisCalibration() {
   function setB(pct) { if (bar) bar.style.width = Math.min(100,pct) + '%'; }
   function log(msg) { appLog('logAdxl', msg); }
 
-  // 측정 중이면 중지
+  //
   try { await fetch('/api/measure', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{"cmd":"stop"}'}); } catch(e) {}
   await new Promise(function(r){setTimeout(r,300)});
 
-  // 설정값 읽기
+  //
   var MIN_SEGS = calMinSegs;
   var GATE = calEnergyGate;
   var FAN_ON = calFanEnabled;
@@ -593,7 +593,7 @@ async function startAxisCalibration() {
   var TOTAL_PHASES = FAN_ON ? 5 : 3;
 
   try {
-    // ═══ Phase 1: 중력 측정 ═══
+    // Phase 1:
     setS('📐 <b>1/'+TOTAL_PHASES+'</b> — 프린터를 정지 상태로 유지하세요 (모터OFF, 팬OFF)');
     setB(0);
     log('<span class="log-ok">▶</span> Phase 1: 중력 측정 시작');
@@ -622,7 +622,7 @@ async function startAxisCalibration() {
     var gMag = vecLen(gMean);
     if (gMag < 100 || gMag > 500) throw new Error('중력 비정상: |g|=' + gMag.toFixed(0));
 
-    // 정지 상태 에너지 기준 (분산)
+    // ( )
     var bgVar = 0;
     for (var i=0; i<gravSamples.length; i++) {
       var dx=gravSamples[i][0]-gMean[0], dy=gravSamples[i][1]-gMean[1], dz=gravSamples[i][2]-gMean[2];
@@ -634,7 +634,7 @@ async function startAxisCalibration() {
     log('<span class="log-ok">✓</span> 중력 OK (' + (gMag/256).toFixed(2) + 'g) 배경 에너지: ' + bgVar.toFixed(1));
     setB(15);
 
-    // ═══ Phase 2: X축 이동 ═══
+    // Phase 2: X
     setS('↔ <b>2/'+TOTAL_PHASES+'</b> — 컨트롤러에서 <b>X축</b>을 왕복 이동하세요');
     log('<span class="log-ok">▶</span> Phase 2: X축 — 움직임 대기 중...');
 
@@ -678,7 +678,7 @@ async function startAxisCalibration() {
     log('<span class="log-ok">✓</span> X축 완료 (' + xActive + ' segs) 방향: [' + xVec.map(function(v){return v.toFixed(2)}).join(', ') + ']');
     setB(40);
 
-    // ═══ Phase 3: Y축 이동 ═══
+    // Phase 3: Y
     setS('↕ <b>3/'+TOTAL_PHASES+'</b> — 컨트롤러에서 <b>Y축</b>을 왕복 이동하세요');
     log('<span class="log-ok">▶</span> Phase 3: Y축 — 움직임 대기 중...');
 
@@ -722,13 +722,13 @@ async function startAxisCalibration() {
     log('<span class="log-ok">✓</span> Y축 완료 (' + yActive + ' segs) 방향: [' + yVec.map(function(v){return v.toFixed(2)}).join(', ') + ']');
     setB(65);
 
-    // ═══ Gram-Schmidt 직교화 ═══
+    // Gram-Schmidt
     var gs = gramSchmidt(gMean, xVec, yVec);
 
-    // ═══ Phase 4~5: 팬 측정 (옵션) ═══
+    // Phase 4~5: ( )
     var fanPeaks = [];
     if (FAN_ON) {
-      // Phase 4: 팬 ON
+      // Phase 4: ON
       setS('🌀 <b>4/'+TOTAL_PHASES+'</b> — <b>핫엔드를 60°C 이상</b>으로 설정하세요 (핫엔드팬 자동 ON)');
       log('<span class="log-ok">▶</span> Phase 4a: 핫엔드팬 — 진동 변화 대기 중...');
       setB(70);
@@ -751,7 +751,7 @@ async function startAxisCalibration() {
                 fanWaiting = false;
                 log('<span class="log-ok">✓</span> 팬 진동 감지! 수집 시작');
               } else if (Date.now() - waitStart > 30000) {
-                // 30초 후 자동 시작 (감지 못 했어도)
+                // 30 ( )
                 fanWaiting = false;
                 log('<span class="log-ok">ℹ</span> 30초 경과 — 자동 수집 시작');
               }
@@ -769,7 +769,7 @@ async function startAxisCalibration() {
       log('<span class="log-ok">✓</span> 팬 ON 측정 완료 (' + fanActive + ' segs)');
       setB(80);
 
-      // Phase 5: 팬 OFF
+      // Phase 5: OFF
       setS('🔇 <b>5/'+TOTAL_PHASES+'</b> — <b>파츠쿨링팬을 100%</b>로 켜세요 (M106 S255), 10초 후 <b>전부 끄세요</b>');
       log('<span class="log-ok">▶</span> Phase 5: 파츠팬+OFF — 대기 중...');
 
@@ -807,7 +807,7 @@ async function startAxisCalibration() {
       }
       log('<span class="log-ok">✓</span> 팬 OFF 측정 완료');
 
-      // 팬 피크 분류: fanOn 에너지 - fanOff 에너지 차이
+      // : fanOn - fanOff
       var fanOnVar = [0,0,0], fanOffVar = [0,0,0];
       var fOnMean = [0,0,0], fOffMean = [0,0,0];
       for (var i=0; i<fanOnSamples.length; i++) { fOnMean[0]+=fanOnSamples[i][0]; fOnMean[1]+=fanOnSamples[i][1]; fOnMean[2]+=fanOnSamples[i][2]; }
@@ -830,7 +830,7 @@ async function startAxisCalibration() {
     }
     setB(90);
 
-    // ═══ 결과 ═══
+    //
     _calWeights = {
       wx: gs.wx, wy: gs.wy, wz: gs.wz,
       gMag: gMag, ortho: gs.ortho, angleXY: gs.angleXY,
@@ -880,7 +880,7 @@ async function saveCalibration() {
   if (!_calWeights) return;
   try {
     var payload = { calWx: _calWeights.wx, calWy: _calWeights.wy };
-    // v1.0: 팬 피크도 저장
+    // v1.0:
     if (_calWeights.fanPeaks && _calWeights.fanPeaks.length > 0) {
       payload.fanPeaks = _calWeights.fanPeaks;
     }
@@ -891,7 +891,7 @@ async function saveCalibration() {
     const d = await r.json();
     if (d.ok) {
       appLog('logAdxl', '<span class="log-ok">✓</span> ' + t('cal_saved'));
-      // 팬 피크를 필터에 로드
+      //
       if (_calWeights.fanPeaks && typeof loadFanPeaks === 'function') {
         loadFanPeaks(_calWeights.fanPeaks);
       }
@@ -906,8 +906,8 @@ async function saveCalibration() {
   }
 }
 
-// ── 운동학별 UI 분기 ──
-// ── 운동학별 UI 분기 ──
+// UI
+// UI
 
 function getCfgKin()      { return document.getElementById('s_kin')?.value || 'corexy'; }
 
@@ -918,11 +918,11 @@ function updateKinUI() {
   const beltNaText = document.getElementById('beltNaText');
 
   if (kin === 'corexy' || kin === 'corexz') {
-    // CoreXY/CoreXZ: Belt Compare 활성
+    // CoreXY/CoreXZ: Belt Compare
     if (beltContent) beltContent.style.display = 'block';
     if (beltNA) beltNA.style.display = 'none';
   } else {
-    // Cartesian/Delta: Belt Compare 비활성 + 안내
+    // Cartesian/Delta: Belt Compare +
     if (beltContent) beltContent.style.display = 'none';
     if (beltNA) beltNA.style.display = 'block';
     if (beltNaText) {
@@ -931,7 +931,7 @@ function updateKinUI() {
   }
 }
 
-// ── WiFi 스캔 ───────────────────────────────────────
+// WiFi
 async function scanWifi() {
   const btn = document.getElementById('wifiScanBtn');
   const box = document.getElementById('wifiScanResult');
@@ -947,9 +947,9 @@ async function scanWifi() {
       box.innerHTML = '<div style="padding:12px;color:var(--tx3);text-align:center">No networks found</div>';
       return;
     }
-    // RSSI 순 정렬
+    // RSSI
     d.networks.sort((a, b) => b.rssi - a.rssi);
-    // R60.5: SSID HTML escape (악성 SSID 네트워크로부터 XSS 방지)
+    // R60.5: SSID HTML escape ( SSID XSS )
     const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
@@ -976,12 +976,12 @@ function selectWifi(ssid) {
   if (el) el.value = ssid;
   const box = document.getElementById('wifiScanResult');
   if (box) box.style.display = 'none';
-  // 비밀번호 필드에 포커스
+  //
   const pw = document.getElementById('s_staPass');
   if (pw) pw.focus();
 }
 
-// ── 시스템 정보 ───────────────────────────────────────
+//
 async function updateSysInfo() {
   try {
     const r = await fetch('/api/adxl/status');
@@ -1001,7 +1001,7 @@ async function updateSysInfo() {
 function doReboot() { if (confirm('Reboot ESP32?')) fetch('/api/reboot',{method:'POST'}); }
 function doFactoryReset() { if (confirm('Reset ALL settings?')) { resetSettings(); saveSettings(); } }
 
-// ── ADXL 로그 함수 (인라인 onclick에서 분리) ──
+// ADXL ( onclick )
 async function checkAdxlLog() {
   const l = document.getElementById('logAdxl');
   try {

@@ -1,11 +1,11 @@
 // ============ FEMTO SHAPER Measure Engine v0.9 ============
-// 측정 상태머신 + 폴링 — app.js에서 분리
+// + app.js
 
-// 측정 상태
+//
 let measPollTimer = null;
 let measPhase = 'idle';
 
-// ── ADXL345 상태 체크 → 상단 인디케이터 + 데모 모드 ──────
+// ADXL345 +
 async function checkAdxlStatus() {
   const dot = document.getElementById('adxlDot');
   const label = document.getElementById('adxlLabel');
@@ -32,7 +32,7 @@ async function checkAdxlStatus() {
       appLog('logShaper', `<span class="log-warn">ℹ</span> ${t('log_wiring')}SCK→GPIO${d.pinSCK||'?'} MISO→GPIO${d.pinMISO||'?'} CS→GPIO${d.pinCS||'?'}`);
     }
   } catch (e) {
-    // ESP32 자체 미연결 (오프라인 모드)
+    // ESP32 ( )
     adxlConnected = false;
     if (dot) dot.style.color = '#FF5252';
     if (label) label.textContent = t('adxl_esp_fail');
@@ -44,7 +44,7 @@ async function checkAdxlStatus() {
 
 const APP_LOG_MAX = 100;
 
-// R119: HTML 이스케이프 헬퍼 (appLog에 에러 메시지 등 untrusted 내용 넣을 때 사용)
+// R119: HTML (appLog untrusted )
 function _escLog(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;')
@@ -60,7 +60,7 @@ function appLog(id, html) {
   const now = new Date();
   const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
   el.innerHTML += `<div><span style="color:var(--c-t3)">[${ts}]</span> ${html}</div>`;
-  // 오래된 로그 제거 (메모리 관리)
+  // ( )
   const divs = el.querySelectorAll ? el.querySelectorAll('div') : [];
   if (divs.length > APP_LOG_MAX) {
     const lines = el.innerHTML.split('</div>');
@@ -69,57 +69,57 @@ function appLog(id, html) {
   el.scrollTop = el.scrollHeight;
 }
 
-// ── 측정 버튼 상태 관리 ──────────────────────────────────
+//
 
 
-// v0.9: 수동 시작/전환 — 시그니처/스윕 대기 건너뛰기
+// v0.9: / /
 
 
-// ── 메인 측정 함수 ───────────────────────────────────────
+//
 
 
-// ── X축 측정 시작 ────────────────────────────────────────
+// X
 
 
-// ── Y축 측정 시작 ────────────────────────────────────────
+// Y
 
 
-// ── 측정 완료 ────────────────────────────────────────────
+//
 
 
-// ── 스윕 자동 종료 시 다음 단계 진행 ──
+//
 
 
-// ── 폴링: 수집 진행 상황 실시간 표시 ────────────────────
-
-
-
+// :
 
 
 
-// ══════════════════════════════════════════════════════
-// v1.0 Print Measure — 듀얼 DSP 기반
-// "출력하면서 측정" = X/Y 동시 수집 + 자동 분석
-// ══════════════════════════════════════════════════════
+
+
+
+//
+// v1.0 Print Measure DSP
+// " " = X/Y +
+//
 
 let printPollTimer = null;
 
 async function startPrintMeasure() {
-  // R52.1: 새 측정 시작 전 상태/전역 변수 명시적 리셋
+  // R52.1: /
   measPhase = 'idle';
   if (typeof stopPrintPolling === 'function') stopPrintPolling();
-  // R58.1: 이전 측정의 글로벌 피크 리셋 (stale 마커 표시 방지)
+  // R58.1: (stale )
   if (typeof window !== 'undefined') {
     if (typeof peakFreqXGlobal !== 'undefined') window.peakFreqXGlobal = 0;
     if (typeof peakFreqYGlobal !== 'undefined') window.peakFreqYGlobal = 0;
   }
 
-  // 캘리브레이션 체크
+  //
   try {
     const cfgRes = await fetch('/api/config');
     const cfg = await cfgRes.json();
     if (!cfg.useCalWeights) {
-      // R55.1: calibration_required 시 설정 탭으로 전환 안내
+      // R55.1: calibration_required
       appLog('logShaper', `<span class="log-err">\u2717</span> ${t('pm_cal_required') || '축 캘리브레이션이 필요합니다.'} → <a href="#" onclick="switchTab('settings');return false;">설정 → 캘리브레이션</a>`);
       return;
     }
@@ -143,7 +143,7 @@ async function startPrintMeasure() {
       } else if (d.error === 'cannot_change_sample_rate_during_measurement') {
         appLog('logShaper', `<span class="log-err">\u2717</span> 측정 중에는 샘플레이트를 변경할 수 없습니다.`);
       } else {
-        // R51.3: error 필드 없어도 fallback
+        // R51.3: error fallback
         appLog('logShaper', `<span class="log-err">\u2717</span> ${_escLog(d.error) ||  'ESP32 returned error without detail'}`);
       }
       return;
@@ -174,30 +174,30 @@ async function stopPrintMeasure() {
 
     appLog('logShaper', `<span class="log-ok">✓</span> X: ${d.segsX} segs, Y: ${d.segsY} segs`);
 
-    // 듀얼 PSD 분석
+    // PSD
     await fetchAndRenderPsdDual(d);
 
     measPhase = 'done';
     setPrintMeasBtn('done');
     ledOn();
 
-    // 결과 저장
+    //
     const savedFreqX = xAnalysis?.recommended?.performance?.freq || d.peakX;
     const savedFreqPerfX = xAnalysis?.recommended?.performance?.freq || d.peakX;
     const savedFreqPerfY = yAnalysis?.recommended?.performance?.freq || d.peakY;
     showSaveResultBtn(savedFreqPerfX, savedFreqPerfY);
 
   } catch(e) {
-    // R9.1: stop 에러 시 사용자 컨텍스트 보존 - 'done' 유지하고 재시도 안내
+    // R9.1: stop - 'done'
     appLog('logShaper', `<span class="log-err">\u2717</span> ${_escLog(e.message)}`);
     appLog('logShaper', `<span class="log-err">!</span> 결과를 가져오지 못했습니다. [완료]를 다시 누르거나 측정을 재시작하세요.`);
-    measPhase = 'done';  // 'idle'로 되돌리지 않음 - 사용자가 재시도 가능
+    measPhase = 'done';  // 'idle' -
     setPrintMeasBtn('done');
     ledOn();
   }
 }
 
-// R13.10: 매직넘버 상수화 - convergence 999 = "수렴 측정 불가/대기 중"
+// R13.10: - convergence 999 = " / "
 const CONVERGENCE_NOT_READY = 999;
 
 function startPrintPolling() {
@@ -219,7 +219,7 @@ function startPrintPolling() {
       const gr = d.gateRatio || 0;
       const cvMax = Math.max(cvX, cvY);
 
-      // 진행바 — 수렴 기반
+      //
       const pct = cvMax >= CONVERGENCE_NOT_READY ? Math.min(20, Math.round(segX / 5))
                 : cvMax > 3 ? 30 : cvMax > 1 ? 60 : 90;
       const progBar = document.getElementById('pmProgressBar');
@@ -229,18 +229,18 @@ function startPrintPolling() {
       if (progEl) progEl.textContent = `${pct}%`;
       if (segEl) segEl.textContent = `${segX} / ${segTotal}`;
 
-      // 5초마다 상태 로그
+      // 5
       if (Date.now() - lastLog > 5000) {
         lastLog = Date.now();
 
-        // 상태 전환
+        //
         const newPhase = segX < 10 ? 'init'
                        : cvMax >= CONVERGENCE_NOT_READY ? 'collecting'
                        : cvMax > 1 ? 'converging' : 'ready';
         const phaseChanged = newPhase !== phase;
         phase = newPhase;
 
-        // 키네마틱 프로파일
+        //
         const kin = typeof getCfgKin === 'function' ? getCfgKin() : 'corexy';
         const kinP = typeof getKinProfile === 'function' ? getKinProfile(kin) : null;
 
@@ -252,14 +252,14 @@ function startPrintPolling() {
         } else if (phase === 'collecting') {
           appLog('logShaper', `<span class="log-ok">📊</span> 수집 중 — ${segX}/${segTotal} segs (gate:${(gr*100).toFixed(0)}% corr:${(corr*100).toFixed(0)}%)`);
         } else if (phase === 'converging') {
-          // 축별 독립 수렴 상태
+          //
           const xConv = cvX < (kinP?.axes?.x?.convergenceHz || 1.0);
           const yConv = cvY < (kinP?.axes?.y?.convergenceHz || 1.5);
           const xIcon = xConv ? '✅' : '🔍';
           const yIcon = yConv ? '✅' : '🔍';
           appLog('logShaper', `<span class="log-ok">🔍</span> 수렴 중 — X${xIcon}±${cvX.toFixed(1)}Hz  Y${yIcon}±${cvY.toFixed(1)}Hz (gate:${(gr*100).toFixed(0)}%)`);
 
-          // 간접 측정 축 안내 (한 번만)
+          // ( )
           if (phaseChanged && kinP) {
             const yAxis = kinP.axes?.y;
             if (yAxis?.sensing === 'indirect') {
@@ -274,7 +274,7 @@ function startPrintPolling() {
         }
       }
 
-      // 자동 완료 알림
+      //
       if (d.autoReady && !autoNotified) {
         autoNotified = true;
         appLog('logShaper', `<span class="log-ok">✅</span> 측정 품질 충분! [완료] 버튼을 눌러 결과를 확인하세요.`);
@@ -282,7 +282,7 @@ function startPrintPolling() {
         if (doneBtn) doneBtn.classList.add('btn-pulse');
       }
     } catch(e) {
-      // R8.2: 폴링 오류를 사일런트로 무시하지 않고 5회 연속 실패 시 중단
+      // R8.2: 5
       if (typeof _pollFailCount === 'undefined') window._pollFailCount = 0;
       window._pollFailCount = (window._pollFailCount || 0) + 1;
       if (window._pollFailCount > 5) {
@@ -298,7 +298,7 @@ function stopPrintPolling() {
   if (typeof window !== 'undefined') window._pollFailCount = 0;
 }
 
-// R20.29: 페이지 로드 시 ESP32가 MEAS_PRINT 상태면 폴링 자동 복원
+// R20.29: ESP32 MEAS_PRINT
 async function resumePrintMeasureIfActive() {
   try {
     const r = await fetch('/api/measure/status');
@@ -311,7 +311,7 @@ async function resumePrintMeasureIfActive() {
     } else if (d.state === 'done' || d.measState === 'done') {
       if (typeof setPrintMeasBtn === 'function') setPrintMeasBtn('done');
     }
-  } catch (e) { /* device offline */ }
+  } catch (e) { /*  device offline  */ }
 }
 
 function setPrintMeasBtn(phase) {
@@ -321,6 +321,6 @@ function setPrintMeasBtn(phase) {
 
   if (idle) idle.style.display = (phase === 'idle' || phase === 'done') ? '' : 'none';
   if (running) running.style.display = (phase === 'running') ? '' : 'none';
-  // 결과 표시: done일 때 + 이미 데이터가 있으면
+  // : done +
   if (result && phase === 'done') result.style.display = '';
 }

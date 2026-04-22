@@ -1,6 +1,6 @@
 // ============================================================
 // FEMTO SHAPER Live Spectrum + Print Validation v0.8
-// Phase 2: 실제 ESP32 /api/adxl/raw 폴링으로 교체
+// Phase 2: ESP32 /api/adxl/raw
 // ============================================================
 
 let liveRunning   = false;
@@ -11,12 +11,12 @@ let livePeakFreq  = 0;
 let liveEnergy    = 0;
 
 
-// ── 실시간 ADXL 폴링 ─────────────────────────────────
-// /api/adxl/raw를 160ms마다 폴링 → FFT 없이 raw 에너지로 바 표시
-// Phase 3에서 WebSocket 실시간 FFT로 교체 예정
+// ADXL
+// /api/adxl/raw 160ms FFT raw
+// Phase 3 WebSocket FFT
 
 
-// ── Live Spectrum 토글 — SSE 기반 실시간 FFT ───────
+// Live Spectrum SSE FFT
 let liveEventSource = null;
 
 function toggleLive() {
@@ -26,7 +26,7 @@ function toggleLive() {
     liveRunning ? t('btn_stop_live') : t('btn_start_live');
 
   if (liveRunning) {
-    // v1.0: 캘리브레이션 미실행 경고
+    // v1.0:
     fetch('/api/config').then(function(r){return r.json()}).then(function(d){
       if (!d.useCalWeights) {
         var el = document.getElementById('liveHint');
@@ -34,15 +34,15 @@ function toggleLive() {
       }
     }).catch(function(){});
     ledBlink();
-    // R38: EventSource 지원 확인 (Safari <15)
+    // R38: EventSource (Safari <15)
     if (typeof EventSource === 'undefined') {
       appLog && appLog('logShaper', `<span class="log-err">!</span> EventSource not supported in this browser`);
       liveRunning = false;
       return;
     }
-    // SSE 연결
+    // SSE
     liveEventSource = new EventSource('/api/live/stream');
-    // R38: 연결 감시 - 10초 동안 데이터가 없으면 stale로 판정해 재연결
+    // R38: - 10 stale
     let _liveLastMsgAt = Date.now();
     if (window._liveWatchdog) clearInterval(window._liveWatchdog);
     window._liveWatchdog = setInterval(() => {
@@ -59,13 +59,13 @@ function toggleLive() {
     liveEventSource.onmessage = (evt) => {
       try {
         const d = JSON.parse(evt.data);
-        // v1.0: 듀얼 포맷 (bx/by)
+        // v1.0: (bx/by)
         const binsX = d.bx || d.b || [];
         const binsY = d.by || [];
         if (binsX.length > 0) {
           for (let i = 0; i < binsX.length && i < liveData.length; i++) {
             liveData[i] = liveData[i] * 0.3 + binsX[i] * 0.7;
-            if (liveData[i] < 0.01) liveData[i] = 0;  // 양자화 노이즈 차단
+            if (liveData[i] < 0.01) liveData[i] = 0;  //
           }
           const ySmoothed = new Array(59).fill(0);
           for (let i = 0; i < binsY.length && i < ySmoothed.length; i++) {
@@ -74,14 +74,14 @@ function toggleLive() {
           }
           drawLiveFrame(liveData, ySmoothed);
 
-          // X 피크
+          // X
           const pk = d.pkx || d.pk || 0;
           if (pk > 0) {
             livePeakFreq = pk;
             const peakEl = document.getElementById('livePeak');
             if (peakEl) peakEl.textContent = pk.toFixed(1) + ' Hz';
           }
-          // Y 피크
+          // Y
           if (d.pky > 0) {
             const pyEl = document.getElementById('livePeakY');
             if (pyEl) pyEl.textContent = d.pky.toFixed(1) + ' Hz';
@@ -91,17 +91,17 @@ function toggleLive() {
       } catch(e) {}
     };
     liveEventSource.onerror = () => {
-      // R16.20: 연결 끊김 시 서버에 명시적 stop 전송 (ESP32 리소스 정리)
+      // R16.20: stop (ESP32 )
       try { fetch('/api/live/stop', {method:'POST'}).catch(()=>{}); } catch (e) {}
     };
   } else {
     ledOn();
-    // R16.18: 이중 close 방어 + null 대입 항상 수행
+    // R16.18: close + null
     try { if (liveEventSource) liveEventSource.close(); } catch (e) {}
     liveEventSource = null;
     fetch('/api/live/stop', {method:'POST'}).catch(()=>{});
     liveData.fill(0);
-    // R19.28: 토글 OFF 시 차트 명시적 destroy (반복 토글 메모리 누수 방지)
+    // R19.28: OFF destroy ( )
     if (typeof destroyLiveChart === 'function') destroyLiveChart();
     drawLiveFrame(liveData);
     const peakEl = document.getElementById('livePeak');
@@ -116,7 +116,7 @@ function toggleLive() {
 }
 
 
-// R16.20: 탭 닫기/새로고침 시 SSE stream 서버에 정지 신호 (sendBeacon 사용)
+// R16.20: / SSE stream (sendBeacon )
 if (typeof window !== 'undefined' && !window._femtoBeforeUnload) {
   window._femtoBeforeUnload = true;
   window.addEventListener('beforeunload', () => {
@@ -142,4 +142,4 @@ function initLive() {
 }
 
 
-// v1.0: Quick/Print fusion 삭제 — Print-only
+// v1.0: Quick/Print fusion Print-only

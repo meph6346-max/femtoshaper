@@ -1,23 +1,23 @@
 // ============ FEMTO SHAPER Filter v1.0 ============
-// 단일 목적: PSD 정제 → 순수 기계 공진 추출
-// 모든 임계값은 설정에서 변경 가능
+// : PSD
+//
 
-// ── 설정 변수 (settings.js에서 로드) ──────────────────
-var filterPsdThreshold = 0.01;   // 최소 노이즈 floor (0.01 = ADXL 양자화 이하 차단)
-var filterPowerHz = 60;       // 전원 주파수 (60Hz 또는 50Hz)
-var filterFreqMin = 18;       // PSD 관심 범위 최소 (Hz)
-var filterFreqMax = 150;      // PSD 관심 범위 최대 (Hz)
-var filterNoiseFloorPct = 0.3;// 노이즈 플로어 백분위
-var filterNoiseMultiplier = 5;// 노이즈 × 이 배율 = 임계값
+// (settings.js )
+var filterPsdThreshold = 0.01;   // floor (0.01 = ADXL )
+var filterPowerHz = 60;       // (60Hz 50Hz)
+var filterFreqMin = 18;       // PSD (Hz)
+var filterFreqMax = 150;      // PSD (Hz)
+var filterNoiseFloorPct = 0.3;//
+var filterNoiseMultiplier = 5;// =
 
-// ── 배경 PSD 캐시 ────────────────────────────────────
+// PSD
 var _bgPsdCache = null;
 
-// ── 배경 노이즈 필터 ─────────────────────────────────
+//
 function filterByBackground(psd, bgPsd) {
   if (!psd || !Array.isArray(psd) || psd.length === 0) return psd || [];
 
-  // 적응형 필터: 노이즈 플로어 자동 계산 + psdThreshold를 최소 floor로
+  // : + psdThreshold floor
   var vals = psd.filter(function(p) { return p.f >= filterFreqMin && p.f <= filterFreqMax; })
                .map(function(p) { return p.v; }).sort(function(a,b) { return a - b; });
   var noiseFloor = vals[Math.floor(vals.length * filterNoiseFloorPct)] || 0;
@@ -30,8 +30,8 @@ function filterByBackground(psd, bgPsd) {
       var bgIdx = Math.round((p.f - filterFreqMin) / 3.125);
       if (bgIdx >= 0 && bgIdx < bgPsd.length) bgV = bgPsd[bgIdx] || 0;
     }
-    // R46: 배경이 신호의 70% 이상을 차감하지 못하도록 clamp
-    // (배경 측정이 잡음을 과하게 포함했을 때 실제 공진까지 제거하는 것 방지)
+    // R46: 70% clamp
+    // ( )
     var bgMax = p.v * 0.7;
     var bgEffective = Math.min(bgV, bgMax);
     var v = Math.max(0, p.v - bgEffective);
@@ -40,9 +40,9 @@ function filterByBackground(psd, bgPsd) {
 }
 
 
-// ══════════════════════════════════════════════════════
-// 팬 스펙트럼 차감 (전체 PSD 빈별)
-// ══════════════════════════════════════════════════════
+//
+// ( PSD )
+//
 
 var _fanHotendPsd = null;
 var _fanPartsPsd = null;
@@ -65,9 +65,9 @@ function filterFanPeaks(psd) {
   var hasParts = _fanPartsPsd && _fanPartsPsd.length > 0;
   if (!hasHotend && !hasParts) return psd;
 
-  // 빈 해상도 자동 감지 (PSD 간격의 절반 + 여유)
+  // (PSD + )
   var binRes = psd.length > 1 ? Math.abs(psd[1].f - psd[0].f) : 3.125;
-  var matchTol = binRes * 0.6; // 빈 간격의 60% = 안전 매칭 범위
+  var matchTol = binRes * 0.6; // 60% =
 
   var partsRatio = _fanPartsSpeed / 100;
 
@@ -93,14 +93,14 @@ function filterFanPeaks(psd) {
 }
 
 
-// ══════════════════════════════════════════════════════
-// 하모닉 정수비 필터
+//
+//
 
 
 
-// ══════════════════════════════════════════════════════
-// 통합 피크 검출 — 전체 시스템의 유일한 피크 검출
-// ══════════════════════════════════════════════════════
+//
+//
+//
 
 var MAX_DETECT_PEAKS = 8;
 
@@ -112,7 +112,7 @@ function detectPeaks(psd, opts) {
   var minRel = (opts && opts.minRel) || 0.1;
   var minSep = (opts && opts.minSep) || 4;
 
-  // 1. 노이즈 플로어
+  // 1.
   var vals = psd.filter(function(p){ return p.f >= filterFreqMin && p.f <= filterFreqMax; })
                .map(function(p){ return p.v; });
   vals.sort(function(a,b){ return a - b; });
@@ -121,7 +121,7 @@ function detectPeaks(psd, opts) {
   var pkGlobal = vals.length > 0 ? vals[vals.length - 1] : 1e-12;
   if (pkGlobal < 1e-12) return [];
 
-  // 2. 후보 수집
+  // 2.
   var candidates = [];
   for (var i = 1; i < psd.length - 1; i++) {
     if (psd[i].f < filterFreqMin || psd[i].f > filterFreqMax) continue;
@@ -151,7 +151,7 @@ function detectPeaks(psd, opts) {
     if (!tooClose) selected.push(c);
   }
 
-  // 4. 줌 정밀화
+  // 4.
   for (var i = 0; i < selected.length; i++) {
     var z = zoomPeakRefine(psd, selected[i].f);
     if (z.improved) selected[i].f = z.freq;
@@ -161,10 +161,10 @@ function detectPeaks(psd, opts) {
     selected[i].secondPeak = z.secondPeak || null;
   }
 
-  // 5. 하모닉 체크 - 최소 오차 매칭
-  // R117: selected 배열은 power-desc 순이므로 i < j 가 frequency 관계를 보장하지 않음.
-  //       각 peak i 에 대해 모든 j (j != i) 를 확인하고, selected[j].f < selected[i].f 인 경우만
-  //       j를 기본파 후보로 간주 (i가 하모닉). 원래 O(n²) 복잡도 유지됨 (n <= 8).
+  // 5. -
+  // R117: selected power-desc i < j frequency .
+  // peak i j (j != i) , selected[j].f < selected[i].f
+  // j (i ). O(n ) (n <= 8).
   for (var i = 0; i < selected.length; i++) {
     selected[i].isHarmonic = false;
     selected[i].harmonicOf = null;
@@ -173,11 +173,11 @@ function detectPeaks(psd, opts) {
     for (var j = 0; j < selected.length; j++) {
       if (j === i) continue;
       if (selected[j].f < filterFreqMin) continue;
-      // R117: 기본파는 낮은 주파수여야 함 (selected[j].f < selected[i].f)
+      // R117: (selected[j].f < selected[i].f)
       if (selected[j].f >= selected[i].f) continue;
       var ratio = selected[i].f / selected[j].f, rounded = Math.round(ratio);
       if (rounded >= 2 && rounded <= 6) {
-        // R44: 5% 허용오차 -> 3%로 강화
+        // R44: 5% -> 3%
         var err = Math.abs(ratio - rounded) / rounded;
         if (err < 0.03 && err < bestErr) { bestErr = err; bestJ = j; bestR = rounded; }
       }
@@ -189,7 +189,7 @@ function detectPeaks(psd, opts) {
     }
   }
 
-  // 6. 키네마틱 존 분류
+  // 6.
   if (typeof classifyKinPeakZones === 'function') {
     var zoned = classifyKinPeakZones(selected, kin, axis);
     for (var i = 0; i < selected.length && i < zoned.length; i++) {
@@ -206,9 +206,9 @@ function detectPeaks(psd, opts) {
 }
 
 
-// ══════════════════════════════════════════════════════
-// 줌 피크 정밀화 (Lorentzian 피팅)
-// ══════════════════════════════════════════════════════
+//
+// (Lorentzian )
+//
 
 function zoomPeakRefine(psd, approxFreq) {
   if (!psd || psd.length < 5 || approxFreq < 15) return { freq: approxFreq, damping: 0.1, Q: 5, improved: false };

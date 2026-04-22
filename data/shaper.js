@@ -1,63 +1,63 @@
-// ============ FEMTO SHAPER 계산 엔진 v0.8 ============
+// ============ FEMTO SHAPER v0.8 ============
 //
-// Klipper shaper_calibrate.py / shaper_defs.py 로직 JS 포팅
-// 원본: https://github.com/Klipper3d/klipper
+// Klipper shaper_calibrate.py / shaper_defs.py JS
+// : https://github.com/Klipper3d/klipper
 // Copyright (C) 2020-2024 Dmitry Butyugin <dmbutyugin@google.com>
-// License: GNU GPLv3 (Klipper 원본과 동일)
+// License: GNU GPLv3 (Klipper )
 //
-// 포팅 항목:
-//   - _get_shaper_smoothing() → calcSmoothing()
-//   - find_shaper_max_accel() → calcMaxAccel() (이분법 탐색)
-//   - _estimate_remaining_vibrations() → calcVibrationRemaining()
-//   - _estimate_shaper() → estimateShaperResponse()
-//   - 다중 damping ratio worst-case (TEST_DAMPING_RATIOS)
+// :
+// - _get_shaper_smoothing() calcSmoothing()
+// - find_shaper_max_accel() calcMaxAccel() ( )
+// - _estimate_remaining_vibrations() calcVibrationRemaining()
+// - _estimate_shaper() estimateShaperResponse()
+// - damping ratio worst-case (TEST_DAMPING_RATIOS)
 //
-// FEMTO 자체 구현:
-//   - getShaperDefs() — 쉐이퍼 A/T 계수 생성
-//   - estimateDampingRatio() — PSD -3dB 대역폭 추정
-//   - analyzeShaper() — 전체 분석 + 이중 추천
+// FEMTO :
+// - getShaperDefs() A/T
+// - estimateDampingRatio() PSD -3dB
+// - analyzeShaper() +
 
-// ── Klipper 상수 ─────────────────────────────────────
+// Klipper
 const DEFAULT_DAMPING = 0.1;
 
-// Klipper: SHAPER_VIBRATION_REDUCTION = 20 (진동 감소 기준 배율)
-// PSD 최대값의 1/20 이하는 무시 (노이즈 플로어 처리)
+// Klipper: SHAPER_VIBRATION_REDUCTION = 20 ( )
+// PSD 1/20 ( )
 const SHAPER_VIBRATION_REDUCTION = 20;
 
-// Klipper: 여러 댐핑 비율에서 worst-case 취함
+// Klipper: worst-case
 const TEST_DAMPING_RATIOS = [0.075, 0.1, 0.15];
 
-// Klipper: max_accel 탐색 시 목표 스무딩
+// Klipper: max_accel
 const TARGET_SMOOTHING = 0.12;
 
-// Klipper: 기본 SCV (Square Corner Velocity)
-// SCV: _scv() → settings.js getCfgScv() 연동 완료 (Phase 5)
+// Klipper: SCV (Square Corner Velocity)
+// SCV: _scv() settings.js getCfgScv() (Phase 5)
 const DEFAULT_SCV = 5.0;
 
-// Settings 탭 연동 헬퍼 (Phase 5)
+// Settings (Phase 5)
 function _scv()      { return typeof getCfgScv      === 'function' ? getCfgScv()      : DEFAULT_SCV; }
 function _damping()  { return typeof getCfgDamping  === 'function' ? getCfgDamping()  : DEFAULT_DAMPING; }
 function _targetSm() { return typeof getCfgTargetSm === 'function' ? getCfgTargetSm() : TARGET_SMOOTHING; }
 
-// ══════════════════════════════════════════════════════
-// Phase 2: 전달함수 추정 H(f) = X(f) / F(f)
-// OMA → EMA 격상: jerk PSD를 입력 스펙트럼으로 사용
 //
-// H1 추정기 (auto-spectrum 버전):
-//   |H(f)|^2 ≈ G_xx(f) / G_ff(f)
-//   여기서 G_xx = output PSD (measPsd), G_ff = input PSD (measJerk)
+// Phase 2: H(f) = X(f) / F(f)
+// OMA EMA : jerk PSD
 //
-// 주의:
-//   - F(f)가 0인 bin에서 divison 발산 방지 → noise floor 클램프
-//   - 저SNR bin은 신뢰도 penalty
-//   - F(f) 스무딩으로 추정 분산 감소
-// ══════════════════════════════════════════════════════
+// H1 (auto-spectrum ):
+// |H(f)|^2 G_xx(f) / G_ff(f)
+// G_xx = output PSD (measPsd), G_ff = input PSD (measJerk)
+//
+// :
+// - F(f) 0 bin divison noise floor
+// - SNR bin penalty
+// - F(f)
+//
 function computeTransferFunction(psdOut, psdInput, opts) {
   opts = opts || {};
   const n = (psdOut && psdOut.length) || 0;
   if (!n || !psdInput || psdInput.length === 0) return null;
 
-  // 1) 입력 PSD 스무딩 (±2 bin 이동평균) — 분산 감소
+  // 1) PSD ( 2 bin )
   const smoothed = new Array(n);
   for (let i = 0; i < n; i++) {
     const lo = Math.max(0, i - 2), hi = Math.min(n - 1, i + 2);
@@ -69,39 +69,39 @@ function computeTransferFunction(psdOut, psdInput, opts) {
     smoothed[i] = cnt > 0 ? sum / cnt : 0;
   }
 
-  // 2) 입력 노이즈 플로어 (최대치의 1%) — 0-division 차단
+  // 2) ( 1%) 0-division
   let maxInput = 0;
   for (let i = 0; i < n; i++) if (smoothed[i] > maxInput) maxInput = smoothed[i];
   const noiseFloor = Math.max(maxInput * 0.01, 1e-9);
 
-  // 3) H(f) = X(f) / F(f)  (파워 도메인)
+  // 3) H(f) = X(f) / F(f) ( )
   const H = new Array(n);
   for (let i = 0; i < n; i++) {
     const fIn = Math.max(smoothed[i], noiseFloor);
     const xVal = psdOut[i].v;
-    const coherence = Math.min(1, smoothed[i] / maxInput);  // 0~1 신뢰도
+    const coherence = Math.min(1, smoothed[i] / maxInput);  // 0~1
     H[i] = {
       f: psdOut[i].f,
-      v: xVal / fIn,           // |H(f)|^2 추정
-      coherence: coherence,    // 이 주파수에서 입력 에너지 충분한가
-      rawV: xVal,              // 원본 출력 PSD 보존
-      inputV: smoothed[i],     // 입력 스펙트럼 보존
+      v: xVal / fIn,           // |H(f)|^2
+      coherence: coherence,    //
+      rawV: xVal,              // PSD
+      inputV: smoothed[i],     //
     };
   }
   return H;
 }
 
-// Phase 1-B (v3): 피크 주파수 신뢰구간 계산 - 시뮬레이션 검증된 경험적 공식
+// Phase 1-B (v3): -
 //
-// 검증 이력 (test/sim_diagnostics.js, test/sim_ci_validate.js):
-//   v1: σ = Δf / (√SNR × √n_eff)           → CI 너무 좁음 (30-37% cov)
-//   v2: 1.5·Δf·relVar 가중           → CI 너무 넓음 (100% cov, 10× 큼)
-//   v3: 0.15·Δf + 0.15·Δf·max(relVar-0.5, 0)  → 95% cov, 실측값과 일치
+// (test/sim_diagnostics.js, test/sim_ci_validate.js):
+// v1: = f / ( SNR n_eff) CI (30-37% cov)
+// v2: 1.5 f relVar CI (100% cov, 10 )
+// v3: 0.15 f + 0.15 f max(relVar-0.5, 0) 95% cov,
 //
-// 실측 상수 (3200Hz 샘플, 1024pt FFT, 10s 측정):
-//   relVar 분포:  mean=0.69, range 0.43-0.96 (Welch σ/μ 비율)
-//   actual σ:    ~0.5 Hz (모든 시나리오)
-//   → binWidth × 0.17 ≈ 0.53Hz 가 경험적 기준값
+// (3200Hz , 1024pt FFT, 10s ):
+// relVar : mean=0.69, range 0.43-0.96 (Welch / )
+// actual : ~0.5 Hz ( )
+// binWidth 0.17 0.53Hz
 function computePeakCI(psdData, peakFreq, opts) {
   opts = opts || {};
   if (!psdData || psdData.length < 3 || !peakFreq) return null;
@@ -122,9 +122,9 @@ function computePeakCI(psdData, peakFreq, opts) {
   const relVar = peakStd / Math.max(peakPower, 1e-12);
   const snr = peakPower / Math.max(peakStd, peakPower * 0.01);
 
-  // 경험 공식 (시뮬레이션에서 95% coverage 달성):
-  //   baseline:    0.15 × binWidth           (~0.47Hz fixed floor)
-  //   high-var:    0.15 × binWidth × excess   (변동 큰 피크는 추가 불확실성)
+  // ( 95% coverage ):
+  // baseline: 0.15 binWidth (~0.47Hz fixed floor)
+  // high-var: 0.15 binWidth excess ( )
   const sigma_f = 0.15 * binWidth
                 + 0.15 * binWidth * Math.max(0, relVar - 0.5);
 
@@ -138,16 +138,16 @@ function computePeakCI(psdData, peakFreq, opts) {
   };
 }
 
-// ══════════════════════════════════════════════════════
-// 시뮬레이션 기반 개선: 다중 모드 Deflation 피크 검출
 //
-// test/sim_diagnostics.js 검증 결과:
-//   Moderate gap (Δ=10Hz): 기존 8.38Hz → deflation 2.42Hz (3.5× 개선)
-//   Equal amp (Δ=8Hz):     기존 5.11Hz → deflation 1.10Hz (4.6× 개선)
+// : Deflation
 //
-// 원리: 주 피크를 찾고 Lorentzian을 PSD에서 차감 후 재탐색
-//       → 주 피크의 스펙트럼 누수에 가려진 부 피크 복구
-// ══════════════════════════════════════════════════════
+// test/sim_diagnostics.js :
+// Moderate gap ( =10Hz): 8.38Hz deflation 2.42Hz (3.5 )
+// Equal amp ( =8Hz): 5.11Hz deflation 1.10Hz (4.6 )
+//
+// : Lorentzian PSD
+//
+//
 function detectPeaksDeflation(psd, detectFn, opts) {
   opts = opts || {};
   const maxPeaks = opts.maxPeaks || 4;
@@ -180,30 +180,30 @@ function detectPeaksDeflation(psd, detectFn, opts) {
 }
 
 
-// ── 쉐이퍼 A/T 계수 정의 ────────────────────────────
-// Klipper shaper_defs.py의 init_func 로직을 풀어쓴 것
-// 각 쉐이퍼별 A(진폭), T(시간 오프셋) 생성
+// A/T
+// Klipper shaper_defs.py init_func
+// A( ), T( )
 //
-// MZV T값: Opus+GPT 39라운드 검증 완료 — t_d=1/(freq*df), T=[0,0.5*t_d,t_d]
-//   → shaper_defs.py 직접 확인 후 수정 예정 (현재 raw 접근 불가)
+// MZV T : Opus+GPT 39 t_d=1/(freq*df), T=[0,0.5*t_d,t_d]
+// shaper_defs.py ( raw )
 function getShaperDefs(freq, damping) {
   if (!freq || freq <= 0 || !isFinite(freq)) return [];
   damping = damping || DEFAULT_DAMPING;
-  // ζ ≥ 1.0 이면 과감쇠 → sqrt(1-ζ²)가 0 또는 NaN → 방어
-  // 실제 3D 프린터 댐핑은 0.01~0.5 범위
+  // 1.0 sqrt(1- ) 0 NaN
+  // 3D 0.01~0.5
   if (damping >= 1.0) damping = 0.99;
   if (damping <= 0) damping = DEFAULT_DAMPING;
 
-  // ── Klipper shaper_defs.py 원본 공식 직접 포팅 ──
-  // 출처: github.com/Klipper3d/klipper/blob/master/klippy/extras/shaper_defs.py
+  // Klipper shaper_defs.py
+  // : github.com/Klipper3d/klipper/blob/master/klippy/extras/shaper_defs.py
   // License: GPL v3
 
-  const v_tol = 1.0 / SHAPER_VIBRATION_REDUCTION; // 진동 허용 비율 = 0.05
+  const v_tol = 1.0 / SHAPER_VIBRATION_REDUCTION; // = 0.05
 
   const shapers = [];
 
-  // ── ZV ──
-  // K = exp(-ζπ/df), A=[1, K], T=[0, 0.5*t_d]
+  // ZV
+  // K = exp(- /df), A=[1, K], T=[0, 0.5*t_d]
   {
     const df  = Math.sqrt(1 - damping * damping);
     const K   = Math.exp(-damping * Math.PI / df);
@@ -211,9 +211,9 @@ function getShaperDefs(freq, damping) {
     shapers.push({ name: 'ZV', A: [1, K], T: [0, 0.5 * t_d] });
   }
 
-  // ── MZV ──
-  // Klipper 원본: K = exp(-0.75*ζπ/df) ← ZV와 다른 K!
-  // a1 = 1 - 1/√2, a2 = (√2-1)*K, a3 = a1*K²
+  // MZV
+  // Klipper : K = exp(-0.75* /df) ZV K!
+  // a1 = 1 - 1/ 2, a2 = ( 2-1)*K, a3 = a1*K
   // T = [0, 0.375*t_d, 0.75*t_d]
   {
     const df  = Math.sqrt(1 - damping * damping);
@@ -225,9 +225,9 @@ function getShaperDefs(freq, damping) {
     shapers.push({ name: 'MZV', A: [a1, a2, a3], T: [0, 0.375 * t_d, 0.75 * t_d] });
   }
 
-  // ── EI ──
-  // Klipper 원본: K = exp(-ζπ/df)
-  // a1 = 0.25*(1+v_tol), a2 = 0.5*(1-v_tol)*K, a3 = a1*K²
+  // EI
+  // Klipper : K = exp(- /df)
+  // a1 = 0.25*(1+v_tol), a2 = 0.5*(1-v_tol)*K, a3 = a1*K
   // T = [0, 0.5*t_d, t_d]
   {
     const df  = Math.sqrt(1 - damping * damping);
@@ -239,10 +239,10 @@ function getShaperDefs(freq, damping) {
     shapers.push({ name: 'EI', A: [a1, a2, a3], T: [0, 0.5 * t_d, t_d] });
   }
 
-  // ── 2HUMP_EI ──
-  // Klipper 원본: get_2hump_ei_shaper() — 4개 임펄스
-  // V2 = v_tol², X = (V2*(sqrt(1-V2)+1))^(1/3)
-  // a1 = (3X²+2X+3V2)/(16X), a2 = (0.5-a1)*K, a3 = a2*K, a4 = a1*K³
+  // 2HUMP_EI
+  // Klipper : get_2hump_ei_shaper() 4
+  // V2 = v_tol , X = (V2*(sqrt(1-V2)+1))^(1/3)
+  // a1 = (3X +2X+3V2)/(16X), a2 = (0.5-a1)*K, a3 = a2*K, a4 = a1*K
   // T = [0, 0.5*t_d, t_d, 1.5*t_d]
   {
     const df  = Math.sqrt(1 - damping * damping);
@@ -257,13 +257,13 @@ function getShaperDefs(freq, damping) {
     shapers.push({ name: '2HUMP_EI', A: [a1, a2, a3, a4], T: [0, 0.5*t_d, t_d, 1.5*t_d] });
   }
 
-  // ── 3HUMP_EI ──
-  // Klipper 원본: get_3hump_ei_shaper()
+  // 3HUMP_EI
+  // Klipper : get_3hump_ei_shaper()
   // a1 = 0.0625*(1+3*v_tol+2*sqrt(2*(v_tol+1)*v_tol))
   // a2 = 0.25*(1-v_tol)*K
-  // a3 = (0.5*(1+v_tol)-2*a1)*K²
-  // a4 = a2*K²
-  // a5 = a1*K⁴
+  // a3 = (0.5*(1+v_tol)-2*a1)*K
+  // a4 = a2*K
+  // a5 = a1*K
   // T = [0, 0.5*t_d, t_d, 1.5*t_d, 2.0*t_d]
   {
     const df  = Math.sqrt(1 - damping * damping);
@@ -285,15 +285,15 @@ function getShaperDefs(freq, damping) {
 }
 
 
-// ── 쉐이퍼 주파수 응답 추정 ──────────────────────────
-// Klipper _estimate_shaper() 직접 포팅
-// 특정 주파수에서 쉐이퍼의 잔여 진동 비율 계산
 //
-// Klipper 원본 (graph_shaper.py):
+// Klipper _estimate_shaper()
+//
+//
+// Klipper (graph_shaper.py):
 //   W = A[i] * exp(-damping * (T[-1] - T[i]))
 //   S += W * sin(omega_d * T[i])
 //   C += W * cos(omega_d * T[i])
-//   return sqrt(S² + C²) * inv_D
+// return sqrt(S + C ) * inv_D
 function estimateShaperResponse(shaper, testFreq, dampingRatio) {
   const A = shaper.A;
   const T = shaper.T;
@@ -307,7 +307,7 @@ function estimateShaperResponse(shaper, testFreq, dampingRatio) {
   let S = 0, C = 0;
   for (let i = 0; i < n; i++) {
     // Klipper: W = A[i] * exp(-damping * (T[last] - T[i]))
-    // 시간 차이에 따른 감쇠 적용
+    //
     const W = A[i] * Math.exp(-damping * (T[n - 1] - T[i]));
     S += W * Math.sin(omegaD * T[i]);
     C += W * Math.cos(omegaD * T[i]);
@@ -317,22 +317,22 @@ function estimateShaperResponse(shaper, testFreq, dampingRatio) {
 }
 
 
-// ── 잔여 진동 계산 ────────────────────────────────────
-// Klipper _estimate_remaining_vibrations() 포팅
 //
-// 핵심 차이점 (기존 FEMTO vs Klipper):
-//   1. SHAPER_VIBRATION_REDUCTION 임계값 적용
-//   2. 다중 damping ratio에서 worst-case 취함
-//   3. PSD 진폭(v)을 직접 사용 (v² 아님 — Klipper는 PSD가 이미 power)
+// Klipper _estimate_remaining_vibrations()
 //
-// @param {Array} psdData - [{f, v}] PSD 데이터
+// ( FEMTO vs Klipper):
+// 1. SHAPER_VIBRATION_REDUCTION
+// 2. damping ratio worst-case
+// 3. PSD (v) (v Klipper PSD power)
+//
+// @param {Array} psdData - [{f, v}] PSD
 // @param {object} shaper - {A[], T[]}
-// @param {number} dampingRatio - 테스트 댐핑 비율
-// @returns {number} 잔여 진동 비율 (0~1)
+// @param {number} dampingRatio -
+// @returns {number} (0~1)
 function calcVibrationRemainingForDR(psdData, shaper, dampingRatio) {
   if (!psdData || psdData.length === 0) return 1;
 
-  // PSD 최대값에서 임계값 계산 (Klipper: psd.max() / SHAPER_VIBRATION_REDUCTION)
+  // PSD (Klipper: psd.max() / SHAPER_VIBRATION_REDUCTION)
   let psdMax = 0;
   for (const d of psdData) {
     if (d.v > psdMax) psdMax = d.v;
@@ -345,7 +345,7 @@ function calcVibrationRemainingForDR(psdData, shaper, dampingRatio) {
   for (const d of psdData) {
     if (d.f <= 0 || d.f > 200) continue; // Klipper: MAX_FREQ = 200
 
-    // 쉐이퍼 응답 계산
+    //
     const response = estimateShaperResponse(shaper, d.f, dampingRatio);
 
     // Klipper: remaining = max(vals * psd - threshold, 0).sum()
@@ -358,10 +358,10 @@ function calcVibrationRemainingForDR(psdData, shaper, dampingRatio) {
   return allVibrations > 0 ? remainingVibrations / allVibrations : 1;
 }
 
-/**
- * 여러 damping ratio에서 worst-case 잔여 진동 계산
- * Klipper: TEST_DAMPING_RATIOS = [0.075, 0.1, 0.15] 중 최대값 사용
- */
+/* *
+* damping ratio worst-case
+* Klipper: TEST_DAMPING_RATIOS = [0.075, 0.1, 0.15]
+  */
 function calcVibrationRemaining(psdData, shaper) {
   let worstVibr = 0;
   for (const dr of TEST_DAMPING_RATIOS) {
@@ -372,20 +372,20 @@ function calcVibrationRemaining(psdData, shaper) {
 }
 
 
-// ── 스무딩 계산 ──────────────────────────────────────
-// Klipper _get_shaper_smoothing() 직접 포팅
 //
-// Klipper 원본:
-//   ts = Σ(A[i]*T[i]) / Σ(A[i])  — 쉐이퍼 중심 시간
-//   T[i] >= ts 인 임펄스에 대해:
+// Klipper _get_shaper_smoothing()
+//
+// Klipper :
+// ts = (A[i]*T[i]) / (A[i])
+// T[i] >= ts :
 //     offset_90  += A[i] * (scv + half_accel*(T[i]-ts)) * (T[i]-ts)
-//     offset_180 += A[i] * half_accel * (T[i]-ts)²
-//   smoothing = max(offset_90 * √2 * inv_D, offset_180 * inv_D)
+// offset_180 += A[i] * half_accel * (T[i]-ts)
+// smoothing = max(offset_90 * 2 * inv_D, offset_180 * inv_D)
 //
 // @param {object} shaper - {A[], T[]}
-// @param {number} accel - 가속도 (mm/s², 기본 5000)
-// @param {number} scv - Square Corner Velocity (mm/s, 기본 5)
-// @returns {number} 스무딩 값 (mm)
+// @param {number} accel - (mm/s , 5000)
+// @param {number} scv - Square Corner Velocity (mm/s, 5)
+// @returns {number} (mm)
 function calcSmoothing(shaper, accel, scv) {
   accel = accel || 5000;
   if (!isFinite(accel) || accel <= 0) accel = 5000;
@@ -398,7 +398,7 @@ function calcSmoothing(shaper, accel, scv) {
   const halfAccel = accel * 0.5;
   const invD = 1.0 / A.reduce((s, a) => s + a, 0);
 
-  // 쉐이퍼 중심 시간 (Klipper: ts)
+  // (Klipper: ts)
   let sumAT = 0, sumA = 0;
   for (let i = 0; i < n; i++) {
     sumAT += A[i] * T[i];
@@ -406,14 +406,14 @@ function calcSmoothing(shaper, accel, scv) {
   }
   const ts = sumAT / sumA;
 
-  // 90도/180도 턴에서의 오프셋 계산
+  // 90 /180
   let offset90 = 0, offset180 = 0;
   for (let i = 0; i < n; i++) {
     if (T[i] >= ts) {
       const dt = T[i] - ts;
-      // 90도 턴: SCV + 가속 성분
+      // 90 : SCV +
       offset90 += A[i] * (scv + halfAccel * dt) * dt;
-      // 180도 턴: 가속 성분만
+      // 180 :
       offset180 += A[i] * halfAccel * dt * dt;
     }
   }
@@ -424,54 +424,54 @@ function calcSmoothing(shaper, accel, scv) {
 }
 
 
-// ── 최대 가속도 계산 ─────────────────────────────────
-// Klipper find_shaper_max_accel() 포팅
 //
-// Klipper 원본:
+// Klipper find_shaper_max_accel()
+//
+// Klipper :
 //   TARGET_SMOOTHING = 0.12
-//   max_accel = bisect(λ accel: smoothing(shaper, accel, scv) ≤ 0.12)
+// max_accel = bisect( accel: smoothing(shaper, accel, scv) 0.12)
 //
-// 이분법(bisection)으로 smoothing이 TARGET_SMOOTHING 이하가 되는
-// 최대 가속도를 찾음
+// (bisection) smoothing TARGET_SMOOTHING
+//
 //
 // @param {object} shaper - {A[], T[]}
-// @param {number} scv - Square Corner Velocity (기본 5)
-// @returns {number} 최대 가속도 (mm/s²)
+// @param {number} scv - Square Corner Velocity ( 5)
+// @returns {number} (mm/s )
 function calcMaxAccel(shaper, scv) {
   scv = scv || _scv();
   const targetSmoothing = _targetSm();
-  // R36: shaper 유효성 가드 (비정상 입력 방지)
+  // R36: shaper ( )
   if (!shaper || !Array.isArray(shaper.A) || !Array.isArray(shaper.T) || shaper.A.length === 0) {
     return 0;
   }
   if (!isFinite(scv) || scv <= 0) scv = DEFAULT_SCV;
   if (!isFinite(targetSmoothing) || targetSmoothing <= 0) return 0;
 
-  // Klipper _bisect() 로직 포팅
+  // Klipper _bisect()
   let left = 1, right = 1;
 
-  // accel이 아주 작을 때 smoothing이 이미 초과하면 0 반환
+  // accel smoothing 0
   if (calcSmoothing(shaper, 1e-9, scv) > targetSmoothing) {
     return 0;
   }
 
-  // 상한 확장
+  //
   while (calcSmoothing(shaper, right, scv) <= targetSmoothing) {
     right *= 2;
-    if (right > 1e7) return right; // 사실상 무한대
+    if (right > 1e7) return right; //
   }
 
-  // left는 OK, right는 초과 → 이분법
-  // left 쪽에서 OK인 지점 찾기
+  // left OK, right
+  // left OK
   left = right * 0.5;
   while (calcSmoothing(shaper, left, scv) > targetSmoothing) {
     right = left;
     left *= 0.5;
   }
 
-  // 이분법 탐색 (Klipper: right - left > 1e-8)
+  // (Klipper: right - left > 1e-8)
   for (let iter = 0; iter < 100; iter++) {
-    if (right - left <= 1) break; // mm/s² 단위이므로 1 이하면 충분
+    if (right - left <= 1) break; // mm/s 1
     const mid = (left + right) * 0.5;
     if (calcSmoothing(shaper, mid, scv) <= targetSmoothing) {
       left = mid;
@@ -484,19 +484,19 @@ function calcMaxAccel(shaper, scv) {
 }
 
 
-// ── v0.9 고정밀 피크 분석 엔진 ────────────────────────
-// 브라우저 JS = 무제한 연산 → ESP32 3.125Hz PSD에서 최대 정밀도 추출
+// v0.9
+// JS = ESP32 3.125Hz PSD
 //
-// 1. 3점 Parabolic 보간: 피크 주파수 ±0.1Hz 정밀도
-// 2. Lorentzian 피팅: 정확한 댐핑 비율 (기존 -3dB 방식 대체)
-// 3. 멀티 Lorentzian 분해: 겹친 피크 분리
-// 4. 신뢰 구간: 피팅 R² 기반
+// 1. 3 Parabolic : 0.1Hz
+// 2. Lorentzian : ( -3dB )
+// 3. Lorentzian :
+// 4. : R
 
-/**
- * 3점 Parabolic 보간 — sub-bin 피크 주파수
- * PSD[k-1], PSD[k], PSD[k+1]에 포물선을 피팅하여 꼭짓점 주파수 추출
- * 정밀도: ~0.1Hz (빈 해상도의 1/30)
- */
+/* *
+* 3 Parabolic sub-bin
+* PSD[k-1], PSD[k], PSD[k+1]
+* : ~0.1Hz ( 1/30)
+  */
 function parabolicPeakInterp(psd, peakIdx) {
   if (peakIdx < 1 || peakIdx >= psd.length - 1) return psd[peakIdx]?.f || 0;
   const y1 = psd[peakIdx-1].v, y2 = psd[peakIdx].v, y3 = psd[peakIdx+1].v;
@@ -507,46 +507,46 @@ function parabolicPeakInterp(psd, peakIdx) {
   return psd[peakIdx].f + delta * df;
 }
 
-/**
- * Lorentzian 피크 피팅
- * 기계적 공진의 PSD = Lorentzian 형태: L(f) = A / (1 + ((f-f0)/γ)²)
- *   f0 = 공진 주파수, γ = HWHM, A = 피크 진폭
- *   damping = γ / f0
+/* *
+* Lorentzian
+* PSD = Lorentzian : L(f) = A / (1 + ((f-f0)/ ) )
+* f0 = , = HWHM, A =
+* damping = / f0
  *
- * 방법: 3점 보간으로 f0 추정 → 주변 빈들에서 γ 최소자승 피팅
+* : 3 f0
  *
  * @returns {f0, amplitude, gamma, damping, rSquared, fitted[]}
- */
+  */
 function fitLorentzian(psd, peakIdx) {
   if (!psd || peakIdx < 2 || peakIdx >= psd.length - 2) {
     return { f0: psd?.[peakIdx]?.f || 0, amplitude: 0, gamma: 3, damping: DEFAULT_DAMPING, rSquared: 0 };
   }
 
-  // 1단계: Parabolic 보간으로 f0 초기 추정
+  // 1 : Parabolic f0
   const f0Init = parabolicPeakInterp(psd, peakIdx);
   const A = psd[peakIdx].v;
   if (A <= 0) return { f0: f0Init, amplitude: 0, gamma: 3, damping: DEFAULT_DAMPING, rSquared: 0 };
 
-  // 2단계: γ 추정 — 피크 주변 빈들에서 Lorentzian 역산
-  // L(f) = A / (1 + ((f-f0)/γ)²) → γ² = (f-f0)² / (A/L(f) - 1)
+  // 2 : Lorentzian
+  // L(f) = A / (1 + ((f-f0)/ ) ) = (f-f0) / (A/L(f) - 1)
   const gammaEstimates = [];
-  const fitRange = Math.min(8, Math.floor(psd.length / 4)); // ±8빈 (±25Hz)
+  const fitRange = Math.min(8, Math.floor(psd.length / 4)); // 8 ( 25Hz)
   for (let di = -fitRange; di <= fitRange; di++) {
     const idx = peakIdx + di;
     if (idx < 0 || idx >= psd.length || di === 0) continue;
     const Li = psd[idx].v;
-    if (Li <= 0 || Li >= A * 0.99) continue; // 피크 자체 또는 0은 제외
+    if (Li <= 0 || Li >= A * 0.99) continue; // 0
     const ratio = A / Li;
     if (ratio <= 1) continue;
     const df = psd[idx].f - f0Init;
     const gamma2 = df * df / (ratio - 1);
     if (gamma2 > 0 && gamma2 < 10000) {
-      gammaEstimates.push({ gamma: Math.sqrt(gamma2), weight: Li / A }); // 피크에 가까울수록 가중
+      gammaEstimates.push({ gamma: Math.sqrt(gamma2), weight: Li / A }); //
     }
   }
 
-  // 가중 중앙값 (이상치 robust)
-  let gamma = 3.0; // 기본값 ≈ ζ=0.075 @ 40Hz
+  // ( robust)
+  let gamma = 3.0; // =0.075 @ 40Hz
   if (gammaEstimates.length >= 3) {
     gammaEstimates.sort((a, b) => a.gamma - b.gamma);
     const totalW = gammaEstimates.reduce((s, e) => s + e.weight, 0);
@@ -559,8 +559,8 @@ function fitLorentzian(psd, peakIdx) {
     gamma = gammaEstimates.reduce((s, e) => s + e.gamma, 0) / gammaEstimates.length;
   }
 
-  // 3단계: f0 정밀 보정 — Lorentzian 중심 최적화 (1D Newton)
-  // ∂L/∂f0 = 0 → 최소자승 미분
+  // 3 : f0 Lorentzian (1D Newton)
+  // L/ f0 = 0
   let f0 = f0Init;
   for (let iter = 0; iter < 10; iter++) {
     let num = 0, den = 0;
@@ -578,10 +578,10 @@ function fitLorentzian(psd, peakIdx) {
     if (Math.abs(den) < 1e-20) break;
     const step = num / den;
     f0 += step;
-    if (Math.abs(step) < 0.01) break; // 0.01Hz 수렴
+    if (Math.abs(step) < 0.01) break; // 0.01Hz
   }
 
-  // 4단계: R² 피팅 품질
+  // 4 : R
   let ssRes = 0, ssTot = 0;
   const meanV = psd.slice(Math.max(0, peakIdx - fitRange), peakIdx + fitRange + 1)
     .reduce((s, p) => s + p.v, 0) / (2 * fitRange + 1);
@@ -594,7 +594,7 @@ function fitLorentzian(psd, peakIdx) {
   }
   const rSquared = ssTot > 0 ? Math.max(0, 1 - ssRes / ssTot) : 0;
 
-  // 댐핑 비율
+  //
   const damping = f0 > 0 ? gamma / f0 : DEFAULT_DAMPING;
 
   return {
@@ -606,20 +606,20 @@ function fitLorentzian(psd, peakIdx) {
   };
 }
 
-// v1.0: decomposeMultiPeak 삭제 — detectPeaks()로 통합
+// v1.0: decomposeMultiPeak detectPeaks()
 
-/**
- * v0.9 댐핑 추정 — Lorentzian 피팅 기반 (기존 -3dB 대역폭 대체)
+/* *
+* v0.9 Lorentzian ( -3dB )
  *
- * 장점:
- *   - 3.125Hz 빈에서도 sub-bin γ 추정 가능 (8빈 이상 사용)
- *   - R² 피팅 품질로 신뢰도 판단
- *   - 좁은 피크(ζ<0.05)도 추정 가능 (기존: 1빈에 갇혀 실패)
- */
+* :
+* - 3.125Hz sub-bin (8 )
+* - R
+* - ( <0.05) ( : 1 )
+  */
 function estimateDampingRatio(psdData, peakFreq) {
   if (!psdData || !peakFreq || psdData.length < 5) return DEFAULT_DAMPING;
 
-  // 피크 인덱스 찾기
+  //
   let peakIdx = 0, peakV = 0;
   for (let i = 0; i < psdData.length; i++) {
     if (Math.abs(psdData[i].f - peakFreq) < 3.2 && psdData[i].v > peakV) {
@@ -630,61 +630,61 @@ function estimateDampingRatio(psdData, peakFreq) {
 
   const fit = fitLorentzian(psdData, peakIdx);
 
-  // R² 낮으면 (피크가 Lorentzian이 아님) → 기본값
+  // R ( Lorentzian )
   if (fit.rSquared < 0.5) return DEFAULT_DAMPING;
 
   return fit.damping;
 }
 
 
-// ── 전체 쉐이퍼 분석 (메인 진입점) ───────────────────
-/**
- * PSD 데이터로부터 5종 쉐이퍼 전체 분석 수행
+// ( )
+/* *
+* PSD 5
  *
- * 반환 구조는 v0.6과 동일 → charts.js / app.js 수정 불필요
+* v0.6 charts.js / app.js
  *
- * @param {Array} psdData - [{f, v}] PSD 데이터
- * @param {number} peakFreq - 주 공진 주파수 (Hz)
- * @param {number} damping - 댐핑 비율 (null이면 자동 추정)
- * @param {Array} peaks - [{freq, power, prominence}] 멀티피크 (참고용, 스윕이 자동 처리)
+* @param {Array} psdData - [{f, v}] PSD
+* @param {number} peakFreq - (Hz)
+* @param {number} damping - (null )
+* @param {Array} peaks - [{freq, power, prominence}] ( , )
  * @returns {object} {
  *   shapers: [{name, freq, vibrPct, maxAccel, smoothing, duration}],
  *   recommended: {performance: {}, lowVibration: {}, safe: {}},
  *   dampingRatio: number,
  *   multiPeak: {detected, peaks} | null
  * }
- */
+  */
 function analyzeShaper(psdData, peakFreq, damping, peaks) {
-  // 빈 PSD 방어
+  // PSD
   if (!psdData || psdData.length === 0) {
     const empty = {name:'ZV',freq:0,vibrPct:100,maxAccel:0,smoothing:1,duration:0,_A:[1],_T:[0],_score:0};
     return { shapers:[empty], recommended:{performance:empty,safe:empty,best:empty}, confidence:0, multiPeak:null };
   }
-  // peakFreq 방어 (0/NaN/Infinity → PSD에서 자동 감지)
+  // peakFreq (0/NaN/Infinity PSD )
   if (!isFinite(peakFreq) || peakFreq <= 0) {
     let maxV=0;peakFreq=40;
     for(const p of psdData) if(p.f>=18&&p.f<=150&&isFinite(p.v)&&p.v>maxV){maxV=p.v;peakFreq=p.f;}
     if(peakFreq<=0) peakFreq=40;
   }
-  // PSD NaN/Infinity 값 정리
+  // PSD NaN/Infinity
   psdData = psdData.map(p => ({f: p.f, v: isFinite(p.v) ? p.v : 0, var: p.var || 0}));
 
-  // ── v0.9: 분산 기반 빈 가중치 ──────────────────────
-  // 분산 낮음 = 세그먼트 간 일관적 = 신뢰도 높음
-  // 분산 높음 = 세그먼트마다 다름 = 노이즈 가능성
+  // v0.9:
+  // = =
+  // = =
   const hasVariance = psdData.some(p => p.var > 0);
   let binWeights = null;
   if (hasVariance) {
     const maxVar = Math.max(...psdData.map(p => p.var), 1e-12);
     binWeights = psdData.map(p => {
       if (p.var <= 0 || p.v <= 0) return 1.0;
-      // 가중치 = 1 / (1 + CV²),  CV = √var / mean
+      // = 1 / (1 + CV ), CV = var / mean
       const cv = Math.sqrt(p.var) / Math.max(p.v, 1e-12);
       return 1.0 / (1.0 + cv * cv);
     });
   }
 
-  // ── v1.0: 댐핑 비율 — detectPeaks 줌 결과 우선, 폴백 fitLorentzian ──
+  // v1.0: detectPeaks , fitLorentzian
   if (!damping && peaks && peaks.length > 0 && peaks[0].damping > 0) {
     damping = peaks[0].damping;
   }
@@ -692,7 +692,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     damping = estimateDampingRatio(psdData, peakFreq);
   }
 
-  // 피크 주파수 신뢰 구간 (줌 데이터 기반)
+  // ( )
   let freqCI = null;
   if (peaks && peaks[0] && peaks[0].Q > 0) {
     const gamma = peaks[0].gamma || peakFreq * damping;
@@ -701,7 +701,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     freqCI = { lower: peakFreq - 1.96 * sigmaF, upper: peakFreq + 1.96 * sigmaF, sigma: sigmaF };
   }
 
-  // PSD 정규화 — 분산 가중 적용
+  // PSD
   const psdMax = Math.max(...psdData.map(d => d.v));
   const psdNorm = psdMax > 0
     ? psdData.map((d, i) => ({
@@ -710,15 +710,15 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
       }))
     : psdData;
 
-  // ── v0.9: PSD Cubic 보간 (3.125Hz → 0.5Hz) ──────────
-  // 제미나이 서드오피니언 반영: 3.125Hz 빈을 1Hz 쉐이퍼 스윕에 적용하면
-  // 양자화 오차로 최적 주파수가 ±1.5Hz 빗겨갈 수 있음
-  // → Catmull-Rom 보간으로 0.5Hz 해상도 PSD 생성
+  // v0.9: PSD Cubic (3.125Hz 0.5Hz)
+  // : 3.125Hz 1Hz
+  // 1.5Hz
+  // Catmull-Rom 0.5Hz PSD
   function interpolatePSD(psd, step) {
     if (!psd || psd.length < 4) return psd;
     const result = [];
     for (let f = psd[0].f; f <= psd[psd.length-1].f; f += step) {
-      // 보간 대상 4포인트 찾기
+      // 4
       let idx = 0;
       for (let i = 0; i < psd.length - 1; i++) {
         if (psd[i].f <= f && psd[i+1].f > f) { idx = i; break; }
@@ -741,25 +741,25 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     }
     return result;
   }
-  const psdInterp = interpolatePSD(psdNorm, 0.5);  // 0.5Hz 해상도
+  const psdInterp = interpolatePSD(psdNorm, 0.5);  // 0.5Hz
 
   const cfgScv = _scv();
 
-  // ══════════════════════════════════════════════════════
-  // Klipper calibrate_shaper.py 방식: 주파수 스윕
   //
-  // v0.9 변경:
-  //   PSD: 3.125Hz → 0.5Hz Catmull-Rom 보간 (양자화 오차 제거)
-  //   스윕: 0.2Hz 스텝 (Klipper numpy arange와 동등)
-  //   → 5종 × 675 = 3375회 vibr% 계산 ≈ 50ms (JS에서 무시할 수준)
-  // ══════════════════════════════════════════════════════
+  // Klipper calibrate_shaper.py :
+  //
+  // v0.9 :
+  // PSD: 3.125Hz 0.5Hz Catmull-Rom ( )
+  // : 0.2Hz (Klipper numpy arange )
+  // 5 675 = 3375 vibr% 50ms (JS )
+  //
 
-  const VIBR_THRESHOLD = 5.0; // Klipper: vibr% ≤ 5% 기준
+  const VIBR_THRESHOLD = 5.0; // Klipper: vibr% 5%
   const SHAPER_NAMES = ['ZV', 'MZV', 'EI', '2HUMP_EI', '3HUMP_EI'];
 
   const freqMin = 15;
   const freqMax = 150;
-  const freqStep = 0.2;  // v0.9: Klipper 동등 (이전 1.0Hz)
+  const freqStep = 0.2;  // v0.9: Klipper ( 1.0Hz)
 
   const shapers = [];
 
@@ -768,7 +768,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     let bestDefs = null;
     const sweepResults = [];
 
-    // 주파수 스윕: 각 주파수에서 vibr%, smoothing, score 계산
+    // : vibr%, smoothing, score
     for (let testFreq = freqMin; testFreq <= freqMax; testFreq += freqStep) {
       const defs = getShaperDefs(testFreq, damping);
       const shaperDef = defs.find(s => s.name === shaperName);
@@ -777,9 +777,9 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
       const vibrRatio = calcVibrationRemaining(psdInterp, shaperDef);
       const smoothing = calcSmoothing(shaperDef, 5000, cfgScv);
 
-      // Klipper score 공식 (shaper_calibrate.py 직접 포팅):
+      // Klipper score (shaper_calibrate.py ):
       //   score = smoothing * (vibrations^1.5 + vibrations * 0.2 + 0.01)
-      // "vibr%를 줄이면서 smoothing도 줄이는 밸런스를 찾는 복합 점수"
+      // "vibr% smoothing "
       const score = smoothing * (Math.pow(vibrRatio, 1.5) + vibrRatio * 0.2 + 0.01);
 
       if (vibrRatio < bestVibr) {
@@ -788,10 +788,10 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
       sweepResults.push({ freq: testFreq, vibrRatio, vibrPct: vibrRatio * 100, smoothing, score, def: shaperDef });
     }
 
-    // Klipper fit_shaper 선택 로직 (소스 직접 포팅):
-    //   1. vibr% 최소인 best_res 찾기
-    //   2. best_res.vibrs * 1.1 + 0.0005 이내에서 score 최소 선택
-    //   Klipper는 results[::-1] (높은 freq부터) 순회
+    // Klipper fit_shaper ( ):
+    // 1. vibr% best_res
+    // 2. best_res.vibrs * 1.1 + 0.0005 score
+    // Klipper results[::-1] ( freq )
     const bestRes = sweepResults.reduce((a, b) => a.vibrRatio < b.vibrRatio ? a : b, sweepResults[0]);
     const vibrLimit = bestRes ? bestRes.vibrRatio * 1.1 + 0.0005 : Infinity;
 
@@ -807,7 +807,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
       selected = sweepResults.reduce((a, b) => a.vibrRatio < b.vibrRatio ? a : b);
     }
 
-    // maxAccel은 최종 승자만 1회 계산
+    // maxAccel 1
     let bestFreq = peakFreq, bestSmoothing = 0, bestMaxAccel = 0;
     if (selected) {
       bestDefs = selected.def;
@@ -815,7 +815,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
       bestSmoothing = selected.smoothing;
       bestMaxAccel = calcMaxAccel(bestDefs, cfgScv);
     } else {
-      // fallback: 피크 주파수 기준
+      // fallback:
       const fb = getShaperDefs(peakFreq, damping).find(s => s.name === shaperName);
       if (fb) {
         bestDefs = fb;
@@ -838,7 +838,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     });
   }
 
-  // v0.9: 모든 쉐이퍼가 vibr >= 90%이면 공진 미감지 → 피크 주파수 기준 재계산
+  // v0.9: vibr >= 90%
   const allHighVibr = shapers.every(s => s.vibrPct >= 90);
   if (allHighVibr && peakFreq >= 18) {
     for (const s of shapers) {
@@ -852,16 +852,16 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     }
   }
 
-  // ── 추천 선택 (Klipper 동일 기준) ──────────────────
-  // Performance: vibr% ≤ 5% 중 maxAccel 최대 (= smoothing 최소)
-  // Low vibration: vibr% 최소
+  // (Klipper )
+  // Performance: vibr% 5% maxAccel (= smoothing )
+  // Low vibration: vibr%
   const perfCandidates = shapers.filter(s => s.vibrPct <= VIBR_THRESHOLD);
   const performance = perfCandidates.length > 0
     ? perfCandidates.reduce((a, b) => a.maxAccel > b.maxAccel ? a : b)
     : shapers.reduce((a, b) => a.vibrPct < b.vibrPct ? a : b);
   const lowVibration = shapers.reduce((a, b) => a.vibrPct < b.vibrPct ? a : b);
 
-  // Safe: vibr% ≤ 5% 중 가장 robust (2HUMP_EI/3HUMP_EI 우선)
+  // Safe: vibr% 5% robust (2HUMP_EI/3HUMP_EI )
   const safeCandidates = shapers.filter(s =>
     s.vibrPct <= VIBR_THRESHOLD &&
     (s.name === '2HUMP_EI' || s.name === '3HUMP_EI' || s.name === 'EI')
@@ -870,12 +870,12 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     ? { ...safeCandidates.reduce((a, b) => a.vibrPct < b.vibrPct ? a : b), tag: 'safe' }
     : { ...lowVibration, tag: 'safe' };
 
-  // ── Klipper find_best_shaper — 5종 중 최종 1개 추천 ──
-  // Klipper 로직 (shaper_calibrate.py):
+  // Klipper find_best_shaper 5 1
+  // Klipper (shaper_calibrate.py):
   //   score = smoothing * (vibr^1.5 + vibr*0.2 + 0.01)
-  //   best = score가 20% 이상 좋거나,
-  //          score 5% + smoothing 10% 좋으면 교체
-  //   ZV 선택 시: vibr%가 10% 이상 좋은 다른 쉐이퍼가 있으면 교체
+  // best = score 20% ,
+  // score 5% + smoothing 10%
+  // ZV : vibr% 10%
   let bestShaper = null;
   for (const s of shapers) {
     const vibrRatio = s.vibrPct / 100;
@@ -887,7 +887,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
       bestShaper = s;
     }
   }
-  // ZV 예외: ZV가 선택되면 vibr%가 10% 이상 좋은 다른 쉐이퍼로 교체
+  // ZV : ZV vibr% 10%
   if (bestShaper && bestShaper.name === 'ZV') {
     for (const s of shapers) {
       if (s.name !== 'ZV' && s.vibrPct * 1.1 < bestShaper.vibrPct) {
@@ -897,7 +897,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     }
   }
 
-  // ── 멀티피크: detectPeaks 결과 변환 (통합 피크 사용) ──
+  // : detectPeaks ( )
   let multiPeak = null;
   const dpPeaks = (peaks || []).filter(p => (p.f || p.freq) > 15 && !p.isHarmonic && !p.isFan);
   if (dpPeaks.length >= 2) {
@@ -922,14 +922,14 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     }
   }
 
-  // ── broad peak: 줌 Q factor 기반 (하드코딩 대역폭 계산 대체) ──
+  // broad peak: Q factor ( )
   let broadPeak = null;
   const zoomQ = dpPeaks.length > 0 ? (dpPeaks[0].Q || 0) : 0;
   if (!multiPeak && zoomQ > 0 && zoomQ < 3) {
     broadPeak = { detected: true, Q: zoomQ, message: 'broad_response_mount_suspect' };
   }
 
-  // ── confidence ─────────────────────────────────────
+  // confidence
   const psdPeak = Math.max(...psdData.map(d => d.v));
   const hfVals = psdData.filter(d => d.f >= 90).map(d => d.v).sort((a, b) => a - b);
   const nf = hfVals.length > 0 ? hfVals[Math.floor(hfVals.length / 2)] : 1e-12;
@@ -944,15 +944,15 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
   if (broadPeak) peakContrib = Math.max(0, peakContrib - 0.05);
   const confidence = Math.min(1.0, snrContrib + segsContrib + peakContrib);
 
-  // ── Classification Layer (GPT P6 + 에너지비율 거부권) ──
-  // 5가지 모드: single / dual_dominant / dual_balanced / broad / harmonic
+  // Classification Layer (GPT P6 + )
+  // 5 : single / dual_dominant / dual_balanced / broad / harmonic
   //
-  // 파이프라인:
-  //   1. broadPeak 최우선
-  //   2. multiPeak 기반 기본 분류
-  //   3. 에너지비율 거부권 — 1차 피크 에너지가 전체의 45% 이상이면
-  //      dual로 분류된 것을 single로 되돌림 (fp 억제)
-  //   4. harmonic은 Quick/Print 융합 시 validator.js에서 최종 판정
+  // :
+  // 1. broadPeak
+  // 2. multiPeak
+  // 3. 1 45%
+  // dual single (fp )
+  // 4. harmonic Quick/Print validator.js
   let resonanceMode = 'single';
   if (broadPeak) {
     resonanceMode = 'broad';
@@ -962,10 +962,10 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     resonanceMode = 'dual_dominant';
   }
 
-  // 에너지비율 거부권: 1차 피크 ±2bin 에너지 / 전체 에너지
-  // > 0.45이면 에너지가 1차에 집중 → 2차는 노이즈 아티팩트 가능성 높음
-  // 에너지비율 거부권: suspected 또는 약한 confirmed(ratio<0.4)에서만
-  // 강한 confirmed(ratio≥0.4)는 진짜 dual이므로 건드리지 않음
+  // : 1 2bin /
+  // > 0.45 1 2
+  // : suspected confirmed(ratio<0.4)
+  // confirmed(ratio 0.4) dual
   const isWeakDual = (resonanceMode === 'dual_dominant' && (!multiPeak || multiPeak.level === 'suspected' || multiPeak.ratio < 0.4));
   if (isWeakDual) {
     const actBins = psdData.filter(d => d.f >= 18.75 && d.f <= 200);
@@ -979,14 +979,14 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
       }
       const energyRatio = peakEnergy / totalEnergy;
       if (energyRatio > 0.45) {
-        // 에너지가 1차에 집중 → dual이 아니라 single + 노이즈
+        // 1 dual single +
         resonanceMode = 'single';
       }
     }
   }
 
-  // ── 잔여역검증: multiPeak의 2차 피크가 하모닉이면 single ──
-  // ratio가 낮은(약한) 2차 피크에서만 적용 — 강한 2차는 진짜 dual일 수 있음
+  // : multiPeak 2 single
+  // ratio ( ) 2 2 dual
   if ((resonanceMode === 'dual_dominant') && multiPeak?.peaks?.length >= 2 && multiPeak.ratio < 0.3) {
     const f1 = multiPeak.peaks[0].freq;
     const f2 = multiPeak.peaks[1].freq;
@@ -997,47 +997,47 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     }
   }
 
-  // ── 저confidence 방어: SNR<6dB 또는 confidence<0.45이면 dual→single ──
-  // 노이즈가 심하면 residual에서 가짜 피크를 잡을 확률이 높음
+  // confidence : SNR<6dB confidence<0.45 dual single
+  // residual
   if ((resonanceMode === 'dual_dominant' || resonanceMode === 'dual_balanced') && confidence < 0.45) {
     resonanceMode = 'single';
   }
 
-  // ── 극단 주파수 방어: peakFreq<22Hz 또는 >130Hz에서 dual 의심 ──
-  // 20Hz 이하: 1/f 노이즈 지배적 → residual fp 높음
-  // 130Hz 이상: 스테퍼 노이즈 대역 → residual fp 높음
+  // : peakFreq<22Hz >130Hz dual
+  // 20Hz : 1/f residual fp
+  // 130Hz : residual fp
   if ((resonanceMode === 'dual_dominant') && (peakFreq < 22 || peakFreq > 130)) {
     if (!multiPeak || multiPeak.level !== 'confirmed' || multiPeak.ratio < 0.5) {
       resonanceMode = 'single';
     }
   }
 
-  // ── 전략 선택 (모드별 safe_freq / 추천 분기) ──────────
+  // ( safe_freq / )
   // single:        perf=primary, safe=EI/2HUMP_EI
-  // dual_dominant:  perf=primary, safe=midFreq (가중평균)
+  // dual_dominant: perf=primary, safe=midFreq ( )
   // dual_balanced:  perf=midFreq, safe=midFreq + 2HUMP_EI
-  // broad:          perf=primary, safe=EI/2HUMP_EI (mount 경고 동반)
+  // broad: perf=primary, safe=EI/2HUMP_EI (mount )
   let safeFreq = peakFreq;
   let perfFreq = performance.freq;
   let safeShaperHint = safe.name;
 
   if (resonanceMode === 'dual_balanced' && multiPeak?.midFreq) {
-    // 균형형 이중 공진: 두 피크 사이의 가중 midpoint를 안전 주파수로
+    // : midpoint
     safeFreq = multiPeak.midFreq;
     perfFreq = multiPeak.midFreq;
-    // safe 쉐이퍼는 넓은 대역 억제가 가능한 2HUMP_EI 권장
+    // safe 2HUMP_EI
     const hump2 = shapers.find(s => s.name === '2HUMP_EI');
     if (hump2 && hump2.vibrPct <= 10) safeShaperHint = '2HUMP_EI';
   } else if (resonanceMode === 'dual_dominant' && multiPeak?.midFreq) {
-    // 지배적 이중 공진: perf는 primary 유지, safe는 midpoint
+    // : perf primary , safe midpoint
     safeFreq = multiPeak.midFreq;
-    // perfFreq는 기존 best/performance 그대로
+    // perfFreq best/performance
   } else if (resonanceMode === 'broad') {
-    // broad: 주파수 신뢰도 낮음 → EI 계열 권장
-    safeShaperHint = safe.name; // 이미 EI 계열이 선택됨
+    // broad: EI
+    safeShaperHint = safe.name; // EI
   }
 
-  // v1.0: 사용자 프린터 설정 기반 실용 메트릭
+  // v1.0:
   const userAccel = typeof getCfgAccel === 'function' ? getCfgAccel() : 5000;
   const userFeed = typeof getCfgFeedrate === 'function' ? getCfgFeedrate() : 300;
   const userBuildX = typeof getCfgBuildX === 'function' ? getCfgBuildX() : 250;
@@ -1045,21 +1045,21 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
   const cfgScvVal = typeof getCfgScv === 'function' ? getCfgScv() : 5.0;
   const recShaper = performance;
   const recMaxAccel = recShaper.maxAccel || 1;
-  // 사용자 accel에서의 실제 스무딩
+  // accel
   let userSmoothing = 0;
   if (recShaper._A && recShaper._T) {
     userSmoothing = calcSmoothing({A:recShaper._A, T:recShaper._T}, userAccel, cfgScvVal);
   }
-  // 가속 여유도
+  //
   const accelHeadroom = recMaxAccel / Math.max(userAccel, 1);
-  // 속도 도달 거리: v²/(2a)
+  // : v /(2a)
   const accelDist = (userFeed * userFeed) / (2 * Math.max(userAccel, 1));
-  // 빌드 볼륨 유효성
+  //
   const buildMin = Math.min(userBuildX, userBuildY);
-  const accelRatio = Math.min(1, (2 * accelDist) / Math.max(buildMin, 1));  // 가감속 비율
-  const maxReachSpeed = Math.sqrt(userAccel * buildMin);  // 베드에서 달성 가능한 최고 속도
-  const feedReachable = userFeed <= maxReachSpeed;        // feedrate 달성 가능?
-  // 등속 구간이 너무 많으면 측정 품질 저하
+  const accelRatio = Math.min(1, (2 * accelDist) / Math.max(buildMin, 1));  //
+  const maxReachSpeed = Math.sqrt(userAccel * buildMin);  //
+  const feedReachable = userFeed <= maxReachSpeed;        // feedrate ?
+  //
   const measExcitation = accelRatio > 0.05 ? (accelRatio > 0.15 ? 'good' : 'fair') : 'poor';
 
   return {
@@ -1093,7 +1093,7 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
     freqCI: freqCI,
     hasVariance: hasVariance,
     noResonance: allHighVibr,
-    // v1.0: 사용자 설정 기반 실용 메트릭
+    // v1.0:
     practical: {
       userAccel,
       userFeed,
@@ -1109,21 +1109,21 @@ function analyzeShaper(psdData, peakFreq, damping, peaks) {
       maxReachSpeed: Math.round(maxReachSpeed),
       feedReachable,
       measExcitation,
-      // 추천 설정 범위
+      //
       rec: (function() {
         const ma = recMaxAccel;
-        // 가속도 범위: 보수적(50%) ~ 최대(100%)
+        // : (50%) ~ (100%)
         const accelMin = Math.max(1000, Math.round(ma * 0.5 / 100) * 100);
         const accelMax = Math.round(ma / 100) * 100;
-        // 속도 범위: 각 가속도에서 가감속 20~40% 기준
+        // : 20~40%
         const sMin = Math.round(Math.sqrt(0.2 * accelMin * buildMin));
         const sMax = Math.min(Math.round(Math.sqrt(0.4 * accelMax * buildMin)), Math.round(maxReachSpeed));
-        // 상태 판정
+        //
         let status;
-        if (ma < 2000) status = 'retry';         // 공진이 너무 낮거나 불안정
-        else if (userAccel > ma) status = 'over'; // 가속도 초과
-        else if (accelHeadroom >= 1.5) status = 'headroom'; // 여유 충분
-        else status = 'tight';                    // 여유 적음
+        if (ma < 2000) status = 'retry';         //
+        else if (userAccel > ma) status = 'over'; //
+        else if (accelHeadroom >= 1.5) status = 'headroom'; //
+        else status = 'tight';                    //
         return { accelMin, accelMax, speedMin: sMin, speedMax: sMax, status };
       })(),
     },

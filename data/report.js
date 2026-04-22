@@ -1,12 +1,12 @@
 // ============ FEMTO SHAPER Report v1.0 ============
-// Print Measure 기반 종합 진단 보고서
-// 키네마틱별 진단 + 비교 분석 + 쉐이퍼 효과 추정
+// Print Measure
+// + +
 
-// 마지막 측정 메트릭 캐시 (Print Measure에서 저장)
+// (Print Measure )
 var _lastCorrelation = 0, _lastGateRatio = 0;
 var _lastConvergenceX = 0, _lastConvergenceY = 0;
 var _lastSegTotal = 0, _lastSegActive = 0;
-var _prevResult = null; // 이전 측정 결과 (비교 진단용)
+var _prevResult = null; // ( )
 
 function generateReport() {
   if (!xAnalysis || !yAnalysis) {
@@ -25,7 +25,7 @@ function generateReport() {
   var peakY = peakFreqYGlobal || 0;
   var ts = new Date().toLocaleString();
 
-  // ── 1. 키네마틱별 진단 ──
+  // 1.
   var diagCtx = {
     peakX: peakX, peakY: peakY,
     peaksX: (xAnalysis.multiPeak && xAnalysis.multiPeak.peaks) || [{f:peakX,rel:1}],
@@ -35,7 +35,7 @@ function generateReport() {
   };
   var kinDiag = typeof runKinDiagnostics === 'function' ? runKinDiagnostics(kin, diagCtx) : [];
 
-  // ── 2. 비교 진단 ──
+  // 2.
   var compDiag = [];
   if (typeof compareKinResults === 'function' && _prevResult) {
     compDiag = compareKinResults(kin, _prevResult, {
@@ -44,11 +44,11 @@ function generateReport() {
     });
   }
 
-  // ── 3. 쉐이퍼 효과 ──
+  // 3.
   var effectX = typeof estimateShaperEffect === 'function' ? estimateShaperEffect(xAnalysis) : null;
   var effectY = typeof estimateShaperEffect === 'function' ? estimateShaperEffect(yAnalysis) : null;
 
-  // ── 3b. 팬 분류 + 하모닉 + 줌 정보 ──
+  // 3b. + +
   var fanHtml = '';
   if (typeof _fanHotendPsd !== 'undefined' && _fanHotendPsd && _fanHotendPsd.length > 0) {
     fanHtml = '<h2>\uD83C\uDF00 '+(ko?'팬 진동 분류':'Fan Vibration Classification')+'</h2>';
@@ -76,7 +76,7 @@ function generateReport() {
   }
   if (zoomHtml) zoomHtml = '<h2>\uD83D\uDD0D '+(ko?'피크 정밀 분석':'Peak Precision')+'</h2>' + zoomHtml;
 
-  // ── 4. 피크 건강도 ──
+  // 4.
   var healthGrade = null;
   if (typeof assessPeakHealth === 'function') {
     try {
@@ -87,7 +87,7 @@ function generateReport() {
     } catch(e) {}
   }
 
-  // ── 5. 측정 품질 ──
+  // 5.
   var qHtml = '';
   if (_lastGateRatio > 0) {
     qHtml = '<div class="g3">'
@@ -97,7 +97,7 @@ function generateReport() {
       + '</div>';
   }
 
-  // ── 6. HTML 빌더 ──
+  // 6. HTML
   var iconMap = {good:'\u2705',info:'\u2139\uFE0F',warn:'\u26A0\uFE0F',alert:'\uD83D\uDD34'};
   var colorMap = {good:'#A3BE8C',info:'#88C0D0',warn:'#EBCB8B',alert:'#BF616A'};
   function mkDiag(items, title) {
@@ -117,7 +117,7 @@ function generateReport() {
   var kinDiagHtml = mkDiag(kinDiag, '\uD83D\uDD0D '+(ko?'키네마틱 진단':'Kinematics') + ' <small>('+kinName+')</small>');
   var compDiagHtml = mkDiag(compDiag, '\uD83D\uDCC8 '+(ko?'이전 대비 변화':'vs Previous'));
 
-  // 쉐이퍼 효과
+  //
   var effHtml = '';
   if (effectX || effectY) {
     effHtml = '<h2>\uD83C\uDFAF '+(ko?'쉐이퍼 효과 추정':'Shaper Effect')+'</h2><div class="g2">';
@@ -126,7 +126,7 @@ function generateReport() {
     effHtml += '</div>';
   }
 
-  // 피크 건강도
+  //
   var hHtml = '';
   if (healthGrade) {
     var gradeL = {excellent:'\uD83D\uDFE2 Excellent',normal:'\uD83D\uDFE1 Normal',caution:'\uD83D\uDFE0 Caution',warning:'\uD83D\uDD34 Warning',critical:'\u26D4 Critical'};
@@ -137,20 +137,20 @@ function generateReport() {
     }
   }
 
-  // Apply 명령
+  // Apply
   var applyCmd = typeof generateApplyGcode === 'function'
     ? generateApplyGcode({firmware:cfg.firmware,freqX:peakX,freqY:peakY,
         shaperTypeX:(xPerf.name||'zv').toLowerCase(),shaperTypeY:(yPerf.name||'zv').toLowerCase(),
         damping:cfg.damping,saveToEeprom:cfg.eepromSave})
     : '# N/A';
 
-  // PSD 차트 JS
+  // PSD JS
   var chartFn = 'function drawRptPSD(cid,psd,peak,color,mpeaks){var c=document.getElementById(cid);if(!c)return;var ctx=c.getContext("2d");var W=c.width=c.offsetWidth*2,H=c.height=c.offsetHeight*2;ctx.scale(2,2);var w=W/2,h=H/2;var maxF=150,maxV=0;for(var i=0;i<psd.length;i++)if(psd[i].v>maxV)maxV=psd[i].v;maxV*=1.2;ctx.fillStyle="#2E3440";ctx.fillRect(0,0,w,h);ctx.strokeStyle="#3B4252";ctx.lineWidth=0.5;for(var f=0;f<=maxF;f+=25){var x=f/maxF*w;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.beginPath();for(var i=0;i<psd.length;i++){var x=psd[i].f/maxF*w,y=h-psd[i].v/maxV*h*0.9;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.stroke();if(peak>0){var px=peak/maxF*w;ctx.strokeStyle="#BF616A";ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(px,0);ctx.lineTo(px,h);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle="#ECEFF4";ctx.font="11px sans-serif";ctx.textAlign="center";ctx.fillText(peak.toFixed(1)+"Hz",px,14)}ctx.fillStyle="#4C566A";ctx.font="10px sans-serif";ctx.textAlign="center";for(var f=0;f<=maxF;f+=50)ctx.fillText(f+"",f/maxF*w,h-2)}';
 
   var xPJ = JSON.stringify((realPsdX||xPsdData||[]).map(function(p){return{f:+(p.f).toFixed(2),v:+(p.v).toFixed(4)}}));
   var yPJ = JSON.stringify((realPsdY||yPsdData||[]).map(function(p){return{f:+(p.f).toFixed(2),v:+(p.v).toFixed(4)}}));
 
-  // ── 조립 ──
+  //
   var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FEMTO SHAPER Report</title><style>'
     + '*{margin:0;padding:0;box-sizing:border-box}'
     + 'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#2E3440;color:#D8DEE9;padding:20px;max-width:700px;margin:0 auto;line-height:1.6}'
@@ -203,7 +203,7 @@ function generateReport() {
 
   var blob = new Blob([html], {type:'text/html'});
   window.open(URL.createObjectURL(blob), '_blank');
-  // 현재 결과를 이전 결과로 저장 (다음 비교용)
+  // ( )
   _prevResult = {peakX:peakX, peakY:peakY, nPeaksX:diagCtx.peaksX.length, nPeaksY:diagCtx.peaksY.length};
   appLog('logShaper', '<span class="log-ok">\u2713</span> ' + (t('log_report_done')||'Report generated'));
 }

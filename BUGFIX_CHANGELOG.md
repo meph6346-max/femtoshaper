@@ -1085,3 +1085,95 @@ critical-quality code.
 - **Severity**: HIGH
 - **Symptom**: Restoring saved print PSD still required `savedSampleRate == cfg.sampleRate`, so valid saved measurements were discarded after later sample-rate changes.
 - **Fix**: Removed the current-rate gate for restored measurement PSD and rely on saved metadata (`measSampleRate`, `binMin`, `binCount`) for replay.
+
+---
+
+## [ENG-COMMENTS] Strip Korean from all comments + directive going forward
+
+User directive (2026-04-22): all comments in source code must be written in
+English. Existing Korean comments to be converted on sight.
+
+### Why
+
+Korean/CJK characters in source files caused repeated regressions across
+encoding cycles (Python regex edits, git CRLF conversion, Codex round-trips).
+Most recently: 6 regression bugs across 3 commits (P-05, P-06, P-07, P1
+follow-ups) where executable statements got swallowed into garbled comment
+lines. Enforcing English-only comments prevents this entire bug class.
+
+### Action taken
+
+**Phase 1 - Bulk strip**: Ran `scripts/strip_korean_comments.py` across all
+15 source files. Script parses C/C++/JS source respecting string literals,
+strips non-ASCII bytes from `//` and `/* */` comments only, preserves code
+and string literals.
+
+Lines changed: 1156 total
+- src/main.cpp: 181 lines
+- src/dsp.h: 216 lines
+- data/app.js: 51
+- data/settings.js: 92
+- data/measure.js: 39
+- data/shaper.js: 255
+- data/filter.js: 37
+- data/validator.js: 54
+- data/charts.js: 25
+- data/live.js: 18
+- data/diagnostic.js: 67
+- data/kinematics.js: 77
+- data/i18n.js: 25 (translation data left intact - user-facing)
+- data/led.js: 2
+- data/report.js: 17
+
+### [ENG-COMMENTS-R01] Pre-existing code-in-comment bugs recovered
+
+**Severity**: CRITICAL for firmware compilability.
+
+When running the strip script, found that **13 lines of main.cpp had
+executable code swallowed into comment lines** since the BASELINE commit
+(`6bab970`, initial femtoshaper commit). These have been present the entire
+project history. Firmware almost certainly never compiled cleanly.
+
+The swallowed statements (now recovered as proper executable code):
+
+| Line | Was | Is now |
+|------|-----|--------|
+| 204 | `// ... SPI.end(); // ... SPI.begin(...)` (both commented) | `SPI.end();` + `SPI.begin(cfg.pinSCK, cfg.pinMISO, cfg.pinMOSI, -1);` |
+| 212 | `// ... adxlDevId = 0;` | `adxlDevId = 0;` (as statement) |
+| 314 | `// ... uint8_t entries = spiRead(...)` | Declaration + use |
+| 442 | `// ... bool firstBoot = false;` | `bool firstBoot = false;` as statement |
+| 443 | `{ // ... prefs.end();` | `{ prefs.end();` on next line |
+| 502 | `// ... dspMinValidSegs = cfg.minSegs;` (was redundant 2nd assignment) | Removed - original on line 504 remains |
+| 626 | `// ... doc["wifiConnected"]=(WiFi.status()==...)` | Proper JSON assignment |
+| 697 | `// ... if (doc["scv"].is<float>()) cfg.scv = ...` | Proper if-statement |
+| 704 | `// ... int newSCK = doc["pinSCK"]...` | Declaration (R60.7 fix restored) |
+| 951 | `// ... static WiFiClient liveSSEClient;` | **Declaration for global client** |
+| 1354-57 | `#ifdef` + code swallowed | Proper #ifdef block |
+| 1363 | `// ... esp_sleep_wakeup_cause_t wakeup = ...` | Declaration restored |
+| 1438 | `// ... WiFi.setTxPower(txPower);` | Proper statement |
+| 1441 | `// ... int wait = 0;` | Proper declaration |
+| 1821 | `// ... uint32_t freeHeap = ESP.getFreeHeap();` | Proper declaration |
+| 1836 | `// ... apFailCount = 0;` | Proper assignment |
+
+**Impact**: Without these fixes, main.cpp would fail to compile due to:
+- `liveSSEClient` undeclared (used in 8+ places)
+- `firstBoot` undeclared (used as assignment/check)
+- `freeHeap` undeclared (used in heap monitoring)
+- `wakeup` undeclared (used in deep sleep recovery)
+- `wait` undeclared (used in WiFi connect loop)
+- `entries` undeclared (used in FIFO polling fallback)
+- `SPI.begin()` never called -> ADXL never works
+- `#ifdef` unterminated -> preprocessor error
+
+These were latent since baseline. User should verify by running
+`pio run -e esp32-c3-supermini` and addressing any remaining compile errors.
+
+### Going forward
+
+New memory file `feedback_english_comments.md` saved. All future edits:
+1. Write comments in English only
+2. Convert adjacent Korean comments on sight when editing a file
+3. Keep string literals (Serial.print text, UI strings) as-is or use `\uXXXX`
+4. Run syntax check (`node --check` for JS) before committing
+
+---

@@ -1,10 +1,10 @@
-// ============ FEMTO SHAPER Chart Engine v0.9 — Chart.js ============
+// ============ FEMTO SHAPER Chart Engine v0.9 Chart.js ============
 const _charts = {};
 
 function _getOrCreate(canvasId, config) {
-  // R19.27: destroy() 실패/재호출 방어
+  // R19.27: destroy() /
   if (_charts[canvasId]) {
-    try { _charts[canvasId].destroy(); } catch (e) { /* already destroyed */ }
+    try { _charts[canvasId].destroy(); } catch (e) { /*  already destroyed  */ }
     delete _charts[canvasId];
   }
   const canvas = document.getElementById(canvasId);
@@ -21,14 +21,14 @@ function drawPSD(canvasId, data, peakHz, color, extraPeaks) {
       try { _charts[canvasId].destroy(); } catch (e) {}
       delete _charts[canvasId];
     }
-    // R19.25: 빈 데이터 시 캔버스 정리 (stale 이미지 제거)
+    // R19.25: (stale )
     try { canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height); } catch (e) {}
     return;
   }
   const labels = data.map(d => typeof d==='object' ? d.f : 0);
   const values = data.map(d => typeof d==='object' ? d.v : d);
   const baseColor = color || '#2196F3';
-  const peakColors = ['#FF5252','#FB8C00','#FFEB3B','#4CAF50','#9C27B0'];  // 빨/주/노/초/보
+  const peakColors = ['#FF5252','#FB8C00','#FFEB3B','#4CAF50','#9C27B0'];  // / / / /
   const allPeaks = [peakHz, ...(extraPeaks||[])].filter(f=>f>0);
   const pointBg = labels.map(f => {
     for (let p=0; p<allPeaks.length; p++) {
@@ -116,7 +116,7 @@ function drawBeltChart(aData, bData, peakA, peakB) {
 
 let _liveChart = null;
 let liveDataY = new Array(59).fill(0);
-// 피크 홀드 + 히트맵
+// +
 let _peakHold = new Array(59).fill(0);
 let _hitMap = new Array(59).fill(0);
 let _peakHoldOn = true;
@@ -135,7 +135,7 @@ function resetLiveHistory() {
   if (st) st.textContent = '';
 }
 
-// R19.28: Live 차트 명시적 destroy (반복 토글로 인한 메모리 누수 방지)
+// R19.28: Live destroy ( )
 function destroyLiveChart() {
   if (_liveChart) {
     try { _liveChart.destroy(); } catch (e) {}
@@ -150,7 +150,7 @@ function destroyLiveChart() {
 function drawLiveFrame(liveData, dataY) {
   const canvas = document.getElementById('cLive');
   if (!canvas) return;
-  // R19.26: NaN/Infinity 방어 - SSE 패킷 손실 시 Chart.js 크래시 방지
+  // R19.26: NaN/Infinity - SSE Chart.js
   if (!Array.isArray(liveData)) liveData = [];
   for (let i = 0; i < liveData.length; i++) {
     if (!Number.isFinite(liveData[i])) liveData[i] = 0;
@@ -161,31 +161,31 @@ function drawLiveFrame(liveData, dataY) {
     }
   }
 
-  // 피크 홀드 업데이트
+  //
   const maxV = Math.max(...liveData, 1);
   const threshold = maxV * 0.05;
   for (let i=0; i<59; i++) {
-    // 피크 홀드: 현재값과 감쇠값 중 큰 것
+    // :
     if (_peakHoldOn) _peakHold[i] = Math.max(_peakHold[i] * 0.97, liveData[i]);
-    // 히트맵: 의미 있는 값이면 히트 누적
+    // :
     _hitMap[i] = _hitMap[i] * 0.985 + ((liveData[i] > threshold) ? 0.015 : 0);
   }
   _liveFrameCount++;
 
-  // 바 색상: 히트맵 강도 반영
+  // :
   const xColors = liveData.map((v, i) => {
-    const h = Math.min(1, _hitMap[i] * 5); // 0~1 정규화
-    if (h < 0.1) return 'rgba(136,192,208,0.5)';     // 차가운 파랑
-    if (h < 0.3) return 'rgba(136,192,208,0.8)';     // 파랑
-    if (h < 0.5) return 'rgba(163,190,140,0.8)';     // 초록
-    if (h < 0.7) return 'rgba(235,203,139,0.85)';    // 노랑
-    return 'rgba(208,135,112,0.9)';                    // 주황 (자주 나타남)
+    const h = Math.min(1, _hitMap[i] * 5); // 0~1
+    if (h < 0.1) return 'rgba(136,192,208,0.5)';     //
+    if (h < 0.3) return 'rgba(136,192,208,0.8)';     //
+    if (h < 0.5) return 'rgba(163,190,140,0.8)';     //
+    if (h < 0.7) return 'rgba(235,203,139,0.85)';    //
+    return 'rgba(208,135,112,0.9)';                    // ( )
   });
 
   const labels = [];
   for (let i=0; i<liveData.length; i++) labels.push(((i+6)*3.125).toFixed(1));
 
-  // 힌트 숨기기
+  //
   const hint = document.getElementById('liveHint');
   if (hint && liveData.some(v => v > 0.1)) hint.style.display = 'none';
 
@@ -197,7 +197,7 @@ function drawLiveFrame(liveData, dataY) {
         datasets: [
           { label:'X', data:[...liveData], backgroundColor:xColors, borderWidth:0, barPercentage:1.0, categoryPercentage:1.0 },
           { label:'Y', data:[...liveDataY], backgroundColor:'rgba(235,203,139,0.35)', borderWidth:0, barPercentage:1.0, categoryPercentage:1.0 },
-          // 피크 홀드 라인
+          //
           { label:'Hold', data:_peakHoldOn?[..._peakHold]:[], type:'line', borderColor:'rgba(255,255,255,0.3)', borderWidth:1, pointRadius:0, fill:false, borderDash:[2,2] },
         ]
       },
@@ -227,13 +227,13 @@ function drawLiveFrame(liveData, dataY) {
     _liveChart.update('none');
   }
 
-  // 상태 라인: 5초마다 (60프레임)
+  // : 5 (60 )
   const now = Date.now();
   if (now - _lastLiveStatusUpdate > 5000 && _liveFrameCount > 30) {
     _lastLiveStatusUpdate = now;
     const st = document.getElementById('liveStatus');
     if (st) {
-      // hitMap에서 가장 높은 빈 찾기
+      // hitMap
       let topBins = [];
       for (let i=0; i<59; i++) {
         if (_hitMap[i] > 0.15) topBins.push({f:((i+6)*3.125), h:_hitMap[i]});
@@ -250,7 +250,7 @@ function drawLiveFrame(liveData, dataY) {
   }
 }
 
-// ── 쉐이퍼 테이블 (HTML) ──────────────────────────────
+// (HTML)
 function shaperTable(containerId, analysis) {
   const el = document.getElementById(containerId);
   if (!el || !analysis?.recommended?.performance) return;
@@ -276,7 +276,7 @@ function shaperTable(containerId, analysis) {
   }).join('');
 }
 
-// ── 추천 요약 ──────────────────────────────────────────
+//
 function renderRecommendation(containerId, analysis) {
   const el = document.getElementById(containerId);
   if (!el || !analysis?.recommended?.performance) return;
@@ -303,7 +303,7 @@ function renderRecommendation(containerId, analysis) {
   el.innerHTML = html;
 }
 
-// ── 더미 PSD ───────────────────────────────────────────
+// PSD
 function genPSD(peak, amp, noise, peak2) {
   const data = [];
   for (let f = 0; f <= 200; f += 0.5) {

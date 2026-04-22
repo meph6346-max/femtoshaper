@@ -1,22 +1,22 @@
 ﻿// ============ FEMTO SHAPER App v0.9 ============
-// UI + 遺꾩꽍 + 珥덇린??(filter.js, measure.js?먯꽌 遺꾨━)
+// UI + + ??(filter.js, measure.js? )
 
-// ?? ?붾? PSD (DEMO_MODE ?먮뒗 蹂듭썝 ?ㅽ뙣 ??fallback) ??
-// ADXL ?ㅼ륫 ?섍꼍?먯꽌???ъ슜?섏? ?딆쓬
+// ? ? ? ? PSD (DEMO_MODE ? ? ??fallback) ? ?
+// ADXL ? ? ? ??? ? ? ?
 const xPsdData   = genPSD(42.2, 1800, 50, 85);
 const yPsdData   = genPSD(37.5, 2200, 60, 72);
 const beltAData  = genPSD(48.1, 1600, 40, null);
 const beltBData  = genPSD(46.9, 1500, 45, null);
 
-// ?? ?꾩뿭 ?곹깭 ????????????????????????????????????????????
+// ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
 let lastShaperResult = null;
 let xAnalysis = null, yAnalysis = null;
 let adxlConnected = false; // ADXL345 connection state
 
-// ?ㅼ륫 PSD ???(ESP32?먯꽌 諛쏆븘???곗씠??
+// ? PSD ? ??(ESP32? ??? ??
 let realPsdX = null, realPsdY = null;
 let peakFreqXGlobal = 0, peakFreqYGlobal = 0;
-let psdPeakXGlobal = 0, psdPeakYGlobal = 0;  // v0.9: 李⑦듃 留덉빱??(PSD ?ㅼ젣 ?쇳겕)
+let psdPeakXGlobal = 0, psdPeakYGlobal = 0;  // v0.9: ??(PSD ? ? )
 
 const TAB_IDS = ['shaper', 'diag', 'live', 'settings'];
 
@@ -25,7 +25,7 @@ function switchTab(id) {
     tab.classList.toggle('active', TAB_IDS[i] === id));
   document.querySelectorAll('.pg').forEach(p =>
     p.classList.toggle('active', p.id === 'pg-' + id));
-  // ?ㅼ젙 ?섏쐞 ?뱀뀡 ?④? (???꾪솚 ???붾쪟 諛⑹?)
+  // ? ? ? ? ? (??? ??? ?)
   if (id !== 'settings') {
     const sl = document.getElementById('settingsLog');
     const ss = document.getElementById('settingsSystem');
@@ -34,20 +34,20 @@ function switchTab(id) {
   }
   if (id === 'live') initLive();
   if (id === 'diag') updateDiagOverview();
-  // R52.3: 네트워크 실패와 무관하게 Shaper 탭 이탈 시 폴링 무조건 정리
-  // 재진입 시 resumePrintMeasureIfActive()로 재개됨 (R20.29)
+  // R52.3: Shaper
+  // resumePrintMeasureIfActive() (R20.29)
   if (id !== 'shaper' && typeof stopPrintPolling === 'function') {
     stopPrintPolling();
   }
-  // R57.2: live 탭 이탈 시 watchdog 타이머도 정리
+  // R57.2: live watchdog
   if (id !== 'live' && typeof window !== 'undefined' && window._liveWatchdog) {
     clearInterval(window._liveWatchdog);
     window._liveWatchdog = null;
   }
-  // ?먯씠?????꾪솚 ??PSD 洹몃옒??redraw
+  // ? ????? ??PSD ??redraw
   if (id === 'shaper') {
     setTimeout(() => {
-      // rawPSD ?쒖떆 + 異붿쿇 freq 留덉빱
+      // rawPSD ? + freq
       if (typeof realPsdX !== 'undefined' && realPsdX) {
         drawPSD('cX', realPsdX, peakFreqXGlobal || 0, '#2196F3');
       }
@@ -60,17 +60,17 @@ function switchTab(id) {
 
 const SUBTAB_IDS = ['overview'];
 function switchSubTab(id) {
-  // v1.0: ?쒕툕???쒓굅 ???⑥씪 媛쒖슂 ?섏씠吏
+  // v1.0: ? ??? ??? ?
 }
 
-// ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
-// v1.0 Print Measure ???PSD 遺꾩꽍
-// /api/psd?mode=print ??binsX + binsY ?숈떆 泥섎━
-// ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+// ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
+// v1.0 Print Measure ? ??PSD
+// /api/psd?mode=print ??binsX + binsY ?
+// ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
 async function fetchAndRenderPsdDual(measureMetrics) {
   try {
     const res = await fetch('/api/psd?mode=print');
-    // R20.34: HTTP 응답 유효성 검증 (WiFi 부분 응답, 502 등)
+    // R20.34: HTTP (WiFi , 502 )
     if (!res.ok) {
       appLog('logShaper', `<span class="log-err">X</span> PSD fetch HTTP ${res.status}`);
       return;
@@ -84,7 +84,7 @@ async function fetchAndRenderPsdDual(measureMetrics) {
       appLog('logShaper', `<span class="log-err">X</span> ${t('pm_no_data') || 'PSD data unavailable'}`);
       return;
     }
-    // R20.34: 빈 개수 불일치 (패킷 절단) 감지
+    // R20.34: ( )
     if (d.binsX.length !== d.binsY.length || d.binsX.length < 20) {
       appLog('logShaper', `<span class="log-err">!</span> Incomplete PSD data (${d.binsX.length}/${d.binsY.length} bins) — WiFi signal?`);
       return;
@@ -96,14 +96,14 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     const bgPsd = d.bgPsd || _bgPsdCache || null;
     if (d.bgPsd) _bgPsdCache = d.bgPsd;
 
-    // Phase 2 (실험적/opt-in): 전달함수 H(f) = X(f) / F(f) 계산
-    // 시뮬레이션(test/sim_accuracy.js) 결과: 기본 사용 시 1/omega^2 편향으로
-    // 오차 악화 — 명시적 토글(window._hfMode===true)일 때만 활성화.
-    // jerk PSD 원시 데이터는 /api/psd 응답에 계속 포함 (연구/디버그용).
+    // Phase 2 ( /opt-in): H(f) = X(f) / F(f)
+    // (test/sim_accuracy.js) : 1/omega^2
+    // (window._hfMode===true) .
+    // jerk PSD /api/psd ( / ).
     let psdXForAnalysis = realPsdX;
     let psdYForAnalysis = realPsdY;
     let _hfActive = false;
-    // R10.2: jerkX 모두 0이면 H(f) 의미 없음 (구버전 펌웨어/측정 미완료)
+    // R10.2: jerkX 0 H(f) ( / )
     const _jerkValid = (arr) => Array.isArray(arr) && arr.length === realPsdX.length &&
                                 arr.some(v => Number.isFinite(v) && v > 1e-9);
     if (typeof window !== 'undefined' && window._hfMode === true &&
@@ -136,12 +136,12 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     let peaksX = typeof detectPeaks === 'function' ? detectPeaks(cleanX, { kin, axis: 'x' }) : [];
     let peaksY = typeof detectPeaks === 'function' ? detectPeaks(cleanY, { kin, axis: 'y' }) : [];
 
-    // 시뮬레이션 검증: 근접 이중 모드(Δf 6~20Hz)에서 deflation이 3~4배 정확
-    // 자동 감지: 첫 두 피크가 근접하고 secondary power가 primary의 30% 이상이면 deflation 실행
-    // R11.1: closeMulti null guard, R12.4: cleanX 빈 배열 가드
+    // : ( f 6~20Hz) deflation 3~4
+    // : secondary power primary 30% deflation
+    // R11.1: closeMulti null guard, R12.4: cleanX
     if (typeof detectPeaksDeflation === 'function' && typeof detectPeaks === 'function') {
       const closeMulti = (peaks) => {
-        // R12.6: atomic destructure - 비동기 변경에도 일관된 스냅샷
+        // R12.6: atomic destructure -
         if (!Array.isArray(peaks) || peaks.length < 2) return false;
         const [p1, p2] = peaks;
         if (!p1 || !p2 || !isFinite(p1.f) || !isFinite(p2.f)) return false;
@@ -155,7 +155,7 @@ async function fetchAndRenderPsdDual(measureMetrics) {
       const hasData = (arr) => Array.isArray(arr) && arr.length >= 10;
       if (hasData(cleanX) && closeMulti(peaksX)) {
         const refined = detectPeaksDeflation(cleanX, (psd) => detectPeaks(psd, { kin, axis: 'x' }), { maxPeaks: 4 });
-        // R12.5: refined 유효성 검증 (모든 피크가 필수 필드 보유)
+        // R12.5: refined ( )
         if (Array.isArray(refined) && refined.length >= 2 &&
             refined.every(p => p && isFinite(p.f) && (isFinite(p.v) || isFinite(p.power)))) {
           peaksX = refined;
@@ -236,7 +236,7 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     xAnalysis._hfMode = _hfActive;
     yAnalysis._hfMode = _hfActive;
 
-    // Phase 1-B: 피크 주파수 95% 신뢰구간 계산
+    // Phase 1-B: 95%
     if (typeof computePeakCI === 'function') {
       const segs = (quality.segCountX ?? quality.segsX) || 100;
       const ciX = computePeakCI(realPsdX, filtPeakX, { segs });
@@ -490,7 +490,7 @@ function updateApplyPreview() {
 
 let _downloadInProgress = false;
 function downloadApply() {
-  // R20.31: 빠른 연타 디바운스 (1초)
+  // R20.31: (1 )
   if (_downloadInProgress) return;
   _downloadInProgress = true;
   setTimeout(() => { _downloadInProgress = false; }, 1000);
@@ -511,7 +511,7 @@ function downloadApply() {
 }
 
 function copyApply() {
-  // R40.1: Clipboard API는 HTTPS/localhost 필요 → HTTP 환경 fallback (textarea 방식)
+  // R40.1: Clipboard API HTTPS/localhost HTTP fallback (textarea )
   const text = document.getElementById('apPreview')?.textContent || '';
   const doFallback = () => {
     try {
@@ -550,13 +550,13 @@ function showSaveResultBtn(show) {
 
 async function doSaveResult() {
   if (!_lastResultForSave) return;
-  // R15.15: 필수 필드 검증 - freqX/freqY가 없으면 저장 불가
+  // R15.15: - freqX/freqY
   const r0 = _lastResultForSave;
   if (!isFinite(r0.freqX) || !isFinite(r0.freqY) || r0.freqX <= 0 || r0.freqY <= 0) {
     appLog('logShaper', `<span class="log-err">\u2717</span> Cannot save: invalid frequencies (X:${r0.freqX} Y:${r0.freqY})`);
     return;
   }
-  // R20.30: 저장 타임스탬프 첨부 (멀티탭 레이스 감지용)
+  // R20.30: ( )
   r0.savedAt = Date.now();
   const st = document.getElementById('resultSaveStatus');
   if (st) { st.textContent = t('result_saving'); st.className = 'save-msg save-pending'; st.style.display = 'block'; }
@@ -566,7 +566,7 @@ async function doSaveResult() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(r0)
     });
-    // R20.33: NVS 풀(507) 또는 다른 서버 에러 상세 처리
+    // R20.33: NVS (507)
     if (!r.ok) {
       if (r.status === 507 || r.status === 500) {
         throw new Error('NVS full — please factory reset (/api/reset?all=1)');
@@ -582,7 +582,7 @@ async function doSaveResult() {
   setTimeout(() => { if (st) st.style.display = 'none'; }, 4000);
 }
 
-// saveResultToESP: ?쒓굅??(dead code)
+// saveResultToESP: ? ??(dead code)
 
 let _lastLoadedResultTs = 0;
 function loadResultFromESP() {
@@ -590,7 +590,7 @@ function loadResultFromESP() {
     .then(r => r.json())
     .then(async (data) => {
       if (!data.hasResult) return;
-      // R20.30: 멀티탭 race 방지 - 이미 로드한 더 최신 결과가 있으면 무시
+      // R20.30: race -
       const ts = data.savedAt || 0;
       if (ts > 0 && ts < _lastLoadedResultTs) {
         appLog('logShaper', `<span class="log-ok">i</span> Skipping older result (other tab has newer)`);
@@ -600,7 +600,7 @@ function loadResultFromESP() {
       const peakX = data.freqX, peakY = data.freqY;
       peakFreqXGlobal = peakX; peakFreqYGlobal = peakY;
 
-      // ESP32?먯꽌 ???PSD 蹂듭썝 ?쒕룄
+      // ESP32? ? ??PSD ?
       let liveBgPsd = null;
       try {
         const res = await fetch('/api/psd?mode=print');
@@ -629,7 +629,7 @@ function loadResultFromESP() {
           if (yD.bins && yD.bins.length > 0) {
             const mapped = yD.bins.map(b => ({f:b.f, v:b.v, var: b.var || 0}));
             realPsdY = mapped;
-            // X가 없었다면 동일 데이터로 채움 (demo 오염 방지)
+            // X (demo )
             if (!realPsdX || realPsdX.length === 0) realPsdX = mapped;
             if (typeof appLog === 'function') {
               appLog('logShaper', `<span class="log-ok">i</span> Single-axis PSD fallback (X=Y)`);
@@ -646,7 +646,7 @@ function loadResultFromESP() {
       const pX = realPsdX || xPsdData;
       const pY = realPsdY || yPsdData;
 
-      // ?꾪꽣 + ?듯빀 ?쇳겕
+      // ? + ? ?
       const bgPsd = liveBgPsd || _bgPsdCache || null;
       const fX = filterFanPeaks(filterByBackground(pX, bgPsd));
       const fY = filterFanPeaks(filterByBackground(pY, bgPsd));
@@ -680,43 +680,43 @@ function loadResultFromESP() {
 
 
 
-// ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
-// ??珥덇린??// ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+// ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
+// ?? ??// ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
 
 function initApp() {
   setLang(curLang);
-  loadSettings();  // ?대??먯꽌 /api/config 1??fetch ???⑤낫?⑸룄 ?ш린??泥섎━
+  loadSettings();  // ? ?? /api/config 1??fetch ??? ? ? ??
 
-  // 遺??罹≪쿂??諛곌꼍 PSD 濡쒕뱶 (?꾪꽣???ъ슜)
+  // ?? ?? PSD (? ??? )
   function loadBgPsd(retryCount) {
     fetch('/api/noise').then(r=>r.json()).then(d=>{
       if(d.valid && d.bins && d.bins.length>0){
         _bgPsdCache = d.bins.map(b=>b.v);
       } else if (retryCount < 3) {
-        // 遺??罹≪쿂 誘몄셿猷???3珥????ъ떆??        setTimeout(() => loadBgPsd(retryCount + 1), 3000);
+        // ?? ???3 ???? ?? setTimeout(() => loadBgPsd(retryCount + 1), 3000);
       }
     }).catch(()=>{
       if (retryCount < 3) setTimeout(() => loadBgPsd(retryCount + 1), 3000);
     }).finally(()=>{
-      if (retryCount === 0) loadResultFromESP();  // 泥??쒕룄 ??利됱떆 寃곌낵 蹂듭썝
+      if (retryCount === 0) loadResultFromESP();  // ?? ??
     });
   }
   loadBgPsd(0);
 
 
-  // ADXL345 ?곹깭 ?뺤씤 ???곷떒 ?몃뵒耳?댄꽣 + ?곕え 紐⑤뱶 ?먮룞 ?꾪솚
-  // R20.29: 새로고침/재진입 시 측정 폴링 자동 복원
+  // ADXL345 ? ? ??? ? ? + ? ? ?
+  // R20.29: /
   if (typeof resumePrintMeasureIfActive === 'function') resumePrintMeasureIfActive();
 
   checkAdxlStatus();
 
-  // 珥덇린 李⑦듃
+  //
   setTimeout(() => {
-    // loadResultFromESP媛 ?대? 寃곌낵瑜?蹂듭썝?덉쑝硫???뼱?곗? ?딆쓬
+    // loadResultFromESP ? ? ? ? ??? ? ? ?
     if (peakFreqXGlobal > 0 || peakFreqYGlobal > 0) return;
 
     if (!adxlConnected) {
-      // ADXL 誘몄뿰寃????곕え ?곗씠???먮룞 ?쒖떆
+      // ADXL ???? ? ??? ?
       xAnalysis = analyzeShaper(xPsdData, 42.2, null);
       yAnalysis = analyzeShaper(yPsdData, 37.5, null);
       drawPSD('cX', xPsdData, 42.2, '#2196F3');

@@ -1,29 +1,29 @@
 // ============================================================
-// FEMTO SHAPER — Kinematics Module v1.0
-// 키네마틱별 측정/분석/진단 로직 분리
+// FEMTO SHAPER Kinematics Module v1.0
+// / /
 //
-// 지원: corexy, cartesian, corexz, delta
-// 각 키네마틱은 고유한:
-//   - 측정 특성 (축별 신호 강도, 센서 감도)
-//   - 수렴 기준 (축별 최소 세그먼트, 수렴도)
-//   - 주파수 대역 매핑 (피크 → 부위)
-//   - 진단 규칙 (벨트 비교, 대칭성)
-//   - 사용자 안내 메시지
+// : corexy, cartesian, corexz, delta
+// :
+// - ( , )
+// - ( , )
+// - ( )
+// - ( , )
+// -
 // ============================================================
 
-// ── 키네마틱 정의 ────────────────────────────────────
+//
 const KIN_PROFILES = {
-  // ═══ CoreXY ═══
-  // 센서가 캐리지에 직접 부착 → X/Y 모두 직접 측정
-  // A/B 벨트 커플링 → X/Y에 같은 피크가 나타날 수 있음
+  // CoreXY
+  // X/Y
+  // A/B X/Y
   corexy: {
     name: 'CoreXY',
     axes: {
       x: {
-        sensing: 'direct',     // 센서가 직접 측정
-        signalStrength: 1.0,   // 기준 강도
-        minActiveSegs: 200,     // 최소 유효 세그먼트
-        convergenceHz: 1.0,    // 수렴 판정 기준 (Hz)
+        sensing: 'direct',     //
+        signalStrength: 1.0,   //
+        minActiveSegs: 200,     //
+        convergenceHz: 1.0,    // (Hz)
         desc_ko: 'X축 (캐리지 직접 측정)',
         desc_en: 'X-axis (direct carriage sensing)',
       },
@@ -36,28 +36,28 @@ const KIN_PROFILES = {
         desc_en: 'Y-axis (direct carriage sensing)',
       },
     },
-    // 주파수 대역 → 부위 매핑
+    //
     zoneMap: [
       { max: 40,  zone: 'belt',     ko: '벨트/갠트리 공진',        en: 'Belt/gantry resonance',          act_ko: 'A/B 벨트 텐션 확인', act_en: 'Check A/B belt tension' },
       { max: 70,  zone: 'frame',    ko: '프레임 구조 공진',        en: 'Frame structural resonance',     act_ko: '프레임 코너 브라켓 체결', act_en: 'Tighten frame corners' },
       { max: 100, zone: 'endmass',  ko: '핫엔드/캐리지 질량 공진', en: 'Hotend/carriage mass resonance', act_ko: '핫엔드 마운트 볼트 점검', act_en: 'Check hotend mount bolts' },
       { max: 999, zone: 'hardware', ko: '베어링/볼트/팬 진동',     en: 'Bearing/bolt/fan vibration',     act_ko: '베어링 점검, 전체 볼트 재체결', act_en: 'Inspect bearings, retighten all bolts' },
     ],
-    // 벨트 비교: X/Y 주파수 비교가 의미 있음 (같은 벨트 시스템)
+    // : X/Y ( )
     beltCompare: true,
-    beltThreshold: { warning: 5, alert: 10 },  // Hz 차이
-    // X/Y 대칭성: CoreXY는 비대칭이면 벨트 문제
+    beltThreshold: { warning: 5, alert: 10 },  // Hz
+    // X/Y : CoreXY
     symmetryRelevant: true,
-    // 기대 상관도: CoreXY는 같은 피크가 양축에 보이므로 상관도 높을 수 있음
+    // : CoreXY
     expectedCorrelation: { min: 0.3, max: 0.8 },
-    // 측정 안내
+    //
     guide_ko: '출력 중 X/Y 모두 직접 측정됩니다. 대각선 움직임이 많을수록 양축 데이터가 풍부합니다.',
     guide_en: 'Both X/Y are directly measured during printing. Diagonal movements provide rich data for both axes.',
   },
 
-  // ═══ Cartesian (Bed Slinger) ═══
-  // 센서가 캐리지(X)에 부착, 베드(Y)는 간접 측정
-  // X: 직접 → 강한 신호, Y: 간접 → 약한 신호
+  // Cartesian (Bed Slinger)
+  // (X) , (Y)
+  // X: , Y:
   cartesian: {
     name: 'Cartesian (Bed Slinger)',
     axes: {
@@ -70,15 +70,15 @@ const KIN_PROFILES = {
         desc_en: 'X-axis (direct carriage sensing)',
       },
       y: {
-        sensing: 'indirect',   // 베드 진동 → 프레임 전달 → 센서
-        signalStrength: 0.3,   // 직접 대비 ~30% (프레임 감쇠)
-        minActiveSegs: 500,    // 3배 더 필요
-        convergenceHz: 1.5,    // 느슨한 기준
+        sensing: 'indirect',   //
+        signalStrength: 0.3,   // ~30% ( )
+        minActiveSegs: 500,    // 3
+        convergenceHz: 1.5,    //
         desc_ko: 'Y축 (베드 간접 측정 — 시간이 더 필요합니다)',
         desc_en: 'Y-axis (indirect bed sensing — requires more time)',
       },
     },
-    zoneMap: {  // 축별로 다른 매핑
+    zoneMap: {  //
       x: [
         { max: 50,  zone: 'belt',     ko: 'X캐리지/벨트 공진',     en: 'X carriage/belt resonance',  act_ko: 'X축 벨트 텐션 확인', act_en: 'Check X belt tension' },
         { max: 70,  zone: 'frame',    ko: '프레임 공진',           en: 'Frame resonance',            act_ko: '프레임 코너 체결', act_en: 'Tighten frame corners' },
@@ -93,16 +93,16 @@ const KIN_PROFILES = {
         { max: 999, zone: 'hardware', ko: '베어링/볼트 진동',      en: 'Bearing/bolt vibration',     act_ko: '베어링 점검', act_en: 'Inspect bearings' },
       ],
     },
-    // 벨트 비교: Cartesian은 X/Y 독립 → 비교 무의미
+    // : Cartesian X/Y
     beltCompare: false,
     symmetryRelevant: false,
-    expectedCorrelation: { min: 0.0, max: 0.4 },  // 낮아야 정상
+    expectedCorrelation: { min: 0.0, max: 0.4 },  //
     guide_ko: 'X축은 직접 측정, Y축은 베드를 통한 간접 측정입니다. Y축 수렴에 시간이 더 걸립니다.',
     guide_en: 'X-axis is directly measured. Y-axis is indirect via bed — requires more time for convergence.',
   },
 
-  // ═══ CoreXZ ═══
-  // X+Z 커플링, Y는 베드 슬링어
+  // CoreXZ
+  // X+Z , Y
   corexz: {
     name: 'CoreXZ',
     axes: {
@@ -145,13 +145,13 @@ const KIN_PROFILES = {
     guide_en: 'X-axis is directly measured. Y-axis is indirect via bed.',
   },
 
-  // ═══ Delta ═══
-  // X/Y/Z 모두 커플링 — 센서 위치에 따라 다름
+  // Delta
+  // X/Y/Z
   delta: {
     name: 'Delta',
     axes: {
       x: {
-        sensing: 'coupled',    // X/Y 커플링
+        sensing: 'coupled',    // X/Y
         signalStrength: 0.7,
         minActiveSegs: 300,
         convergenceHz: 1.5,
@@ -175,48 +175,48 @@ const KIN_PROFILES = {
     ],
     beltCompare: false,
     symmetryRelevant: false,
-    expectedCorrelation: { min: 0.5, max: 0.9 },  // 커플링으로 높음
+    expectedCorrelation: { min: 0.5, max: 0.9 },  //
     guide_ko: '델타 프린터는 X/Y 커플링이 강합니다. 결과는 참고용입니다.',
     guide_en: 'Delta printers have strong X/Y coupling. Results are for reference.',
   },
 };
 
-// ── 공개 API ─────────────────────────────────────────
+// API
 
-// 키네마틱 프로파일 조회
+//
 function getKinProfile(kin) {
   return KIN_PROFILES[kin] || KIN_PROFILES.corexy;
 }
 
-// 축별 주파수 대역 매핑 조회
+//
 function getKinZoneMap(kin, axis) {
   const p = getKinProfile(kin);
-  // 축별 분리된 매핑이 있으면 사용, 없으면 공통
+  // ,
   if (p.zoneMap && !Array.isArray(p.zoneMap)) {
     return p.zoneMap[axis] || p.zoneMap.x || [];
   }
   return p.zoneMap || [];
 }
 
-// 피크를 대역에 매핑 (diagnostic.js의 classifyPeakZones 대체)
+// (diagnostic.js classifyPeakZones )
 function classifyKinPeakZones(peaks, kin, axis) {
   const zones = getKinZoneMap(kin, axis);
   return peaks.map(p => {
-    // R47: 경계값에서 낮은 zone에 포함 (40.0Hz는 belt(max=40)에 속함)
+    // R47: zone (40.0Hz belt(max=40) )
     const zone = zones.find(z => p.f <= z.max) || zones[zones.length - 1];
     return { f: p.f, rel: p.rel || 0, zone: zone.zone, ko: zone.ko, en: zone.en, act_ko: zone.act_ko, act_en: zone.act_en };
   });
 }
 
 
-// ══════════════════════════════════════════════════════
-// v1.0 키네마틱별 진단 엔진
-// ══════════════════════════════════════════════════════
+//
+// v1.0
+//
 
-// ── 키네마틱별 진단 규칙 ─────────────────────────────
+//
 const KIN_DIAG_RULES = {
-  // ═══ CoreXY 진단 ═══
-  // 핵심: A/B 벨트 커플링 → X/Y 비교가 의미 있는 유일한 키네마틱
+  // CoreXY
+  // : A/B X/Y
   corexy: {
     rules: [
       {
@@ -232,7 +232,7 @@ const KIN_DIAG_RULES = {
       {
         id: 'coupled_peaks',
         test: (ctx) => {
-          // CoreXY에서 X/Y 양축에 같은 주파수 피크 → 정상 (벨트 커플링)
+          // CoreXY X/Y ( )
           if (!ctx.peaksX || !ctx.peaksY) return null;
           let shared = 0;
           for (const px of ctx.peaksX) {
@@ -253,13 +253,13 @@ const KIN_DIAG_RULES = {
         },
       },
     ],
-    // CoreXY 정상 범위
+    // CoreXY
     normalFreqRange: { x: [30, 80], y: [30, 80] },
-    freqRelation: 'similar',  // X≈Y가 정상
+    freqRelation: 'similar',  // X Y
   },
 
-  // ═══ Cartesian (Bed Slinger) 진단 ═══
-  // 핵심: X/Y 완전히 독립. Y 저주파는 정상. 비교 무의미.
+  // Cartesian (Bed Slinger)
+  // : X/Y . Y . .
   cartesian: {
     rules: [
       {
@@ -275,7 +275,7 @@ const KIN_DIAG_RULES = {
         id: 'xy_independence',
         test: (ctx) => {
           if (!ctx.peakX || !ctx.peakY) return null;
-          // Cartesian에서 X >> Y가 정상 (가벼운 캐리지 vs 무거운 베드)
+          // Cartesian X >> Y ( vs )
           if (ctx.peakX > ctx.peakY * 1.3) return { status:'info', ko:`X(${ctx.peakX.toFixed(0)}Hz) > Y(${ctx.peakY.toFixed(0)}Hz) — Bed Slinger 정상 패턴`, en:`X(${ctx.peakX.toFixed(0)}Hz) > Y(${ctx.peakY.toFixed(0)}Hz) — normal bed-slinger pattern` };
           if (ctx.peakX < ctx.peakY * 0.7) return { status:'warn', ko:`X(${ctx.peakX.toFixed(0)}Hz) < Y(${ctx.peakY.toFixed(0)}Hz) — 비정상. X축 벨트/가이드 확인`, en:`X(${ctx.peakX.toFixed(0)}Hz) < Y(${ctx.peakY.toFixed(0)}Hz) — unusual. Check X belt/rail` };
           return null;
@@ -284,17 +284,17 @@ const KIN_DIAG_RULES = {
       {
         id: 'y_signal_quality',
         test: (ctx) => {
-          // 간접 측정 Y축 신호 품질
+          // Y
           if (ctx.correlation > 0.5) return { status:'warn', ko:`X/Y 상관도 높음 (${(ctx.correlation*100).toFixed(0)}%) — Y축 분리 불확실. 더 긴 측정 권장`, en:`High X/Y correlation (${(ctx.correlation*100).toFixed(0)}%) — Y separation uncertain. Longer measurement recommended` };
           return null;
         },
       },
     ],
     normalFreqRange: { x: [35, 80], y: [20, 50] },
-    freqRelation: 'x_higher',  // X > Y가 정상
+    freqRelation: 'x_higher',  // X > Y
   },
 
-  // ═══ CoreXZ 진단 ═══
+  // CoreXZ
   corexz: {
     rules: [
       {
@@ -308,7 +308,7 @@ const KIN_DIAG_RULES = {
       {
         id: 'xz_coupling',
         test: (ctx) => {
-          // X+Z 커플링 — X축 피크가 Z 갠트리 영향 받음
+          // X+Z X Z
           if (ctx.peakX && ctx.peakX < 35) return { status:'warn', ko:`X축 ${ctx.peakX.toFixed(0)}Hz 저주파 — Z갠트리 처짐 또는 XZ벨트 텐션 부족`, en:`X-axis ${ctx.peakX.toFixed(0)}Hz low — Z-gantry sag or XZ belt tension` };
           return null;
         },
@@ -318,7 +318,7 @@ const KIN_DIAG_RULES = {
     freqRelation: 'x_higher',
   },
 
-  // ═══ Delta 진단 ═══
+  // Delta
   delta: {
     rules: [
       {
@@ -326,7 +326,7 @@ const KIN_DIAG_RULES = {
         test: (ctx) => {
           if (!ctx.peakX || !ctx.peakY) return null;
           const diff = Math.abs(ctx.peakX - ctx.peakY);
-          // Delta는 대칭이어야 함
+          // Delta
           if (diff < 3) return { status:'good', ko:`X/Y 대칭 양호 (차이 ${diff.toFixed(1)}Hz) — 3축 균형`, en:`X/Y symmetric (Δ${diff.toFixed(1)}Hz) — 3-axis balanced` };
           if (diff < 8) return { status:'warn', ko:`X/Y 비대칭 (차이 ${diff.toFixed(1)}Hz) — 암 길이 또는 캐리지 텐션 불균형`, en:`X/Y asymmetric (Δ${diff.toFixed(1)}Hz) — arm length or carriage tension imbalance` };
           return { status:'alert', ko:`X/Y 심각한 비대칭 (차이 ${diff.toFixed(1)}Hz) — 기계적 점검 필요`, en:`Severe X/Y asymmetry (Δ${diff.toFixed(1)}Hz) — mechanical inspection needed` };
@@ -342,11 +342,11 @@ const KIN_DIAG_RULES = {
       },
     ],
     normalFreqRange: { x: [30, 70], y: [30, 70] },
-    freqRelation: 'similar',  // X≈Y가 정상
+    freqRelation: 'similar',  // X Y
   },
 };
 
-// ── 키네마틱 진단 실행 ───────────────────────────────
+//
 // ctx: { peakX, peakY, peaksX[], peaksY[], correlation, gateRatio, convergenceX, convergenceY }
 function runKinDiagnostics(kin, ctx) {
   const rules = (KIN_DIAG_RULES[kin] || KIN_DIAG_RULES.corexy).rules;
@@ -355,10 +355,10 @@ function runKinDiagnostics(kin, ctx) {
     try {
       const r = rule.test(ctx);
       if (r) results.push({ id: rule.id, ...r });
-    } catch(e) { /* 개별 규칙 실패 무시 */ }
+    } catch(e) { /*  */ }
   }
 
-  // 공통 규칙: 주파수 범위 확인
+  // :
   const range = (KIN_DIAG_RULES[kin] || KIN_DIAG_RULES.corexy).normalFreqRange;
   if (ctx.peakX && range) {
     if (ctx.peakX < range.x[0]) results.push({ id:'freq_range_x', status:'warn', ko:`X축 ${ctx.peakX.toFixed(0)}Hz — 정상 범위(${range.x[0]}~${range.x[1]}Hz) 미만`, en:`X-axis ${ctx.peakX.toFixed(0)}Hz — below normal range (${range.x[0]}~${range.x[1]}Hz)` });
@@ -368,12 +368,12 @@ function runKinDiagnostics(kin, ctx) {
     if (ctx.peakY < range.y[0]) results.push({ id:'freq_range_y', status:'warn', ko:`Y축 ${ctx.peakY.toFixed(0)}Hz — 정상 범위(${range.y[0]}~${range.y[1]}Hz) 미만`, en:`Y-axis ${ctx.peakY.toFixed(0)}Hz — below normal range (${range.y[0]}~${range.y[1]}Hz)` });
   }
 
-  // 공통 규칙: 게이트 비율 경고
+  // :
   if (ctx.gateRatio !== undefined && ctx.gateRatio < 0.05 && ctx.gateRatio > 0) {
     results.push({ id:'low_gate', status:'warn', ko:`유효 세그먼트 비율 ${(ctx.gateRatio*100).toFixed(0)}% — 등속 구간이 많음. 속도↑ 또는 가속↑ 설정 권장`, en:`Active segment ratio ${(ctx.gateRatio*100).toFixed(0)}% — mostly constant speed. Increase speed/accel settings` });
   }
 
-  // 공통 규칙: 피크 복잡도
+  // :
   const totalPeaks = (ctx.peaksX||[]).length + (ctx.peaksY||[]).length;
   if (totalPeaks >= 8) {
     results.push({ id:'complex', status:'alert', ko:`총 ${totalPeaks}개 피크 — 기계적 상태 전반 점검 필요`, en:`${totalPeaks} total peaks — comprehensive mechanical inspection recommended` });
@@ -382,14 +382,14 @@ function runKinDiagnostics(kin, ctx) {
   return results;
 }
 
-// ── 비교 진단 (이전 vs 현재) ─────────────────────────
+// ( vs )
 function compareKinResults(kin, prev, curr) {
   if (!prev || !curr) return [];
   const results = [];
   const lang = (typeof getLang === 'function') ? getLang() : 'ko';
   const profile = KIN_DIAG_RULES[kin] || KIN_DIAG_RULES.corexy;
 
-  // X축 주파수 변화
+  // X
   if (prev.peakX > 0 && curr.peakX > 0) {
     const dX = curr.peakX - prev.peakX;
     if (Math.abs(dX) >= 2) {
@@ -410,13 +410,13 @@ function compareKinResults(kin, prev, curr) {
     }
   }
 
-  // Y축 주파수 변화
+  // Y
   if (prev.peakY > 0 && curr.peakY > 0) {
     const dY = curr.peakY - prev.peakY;
     if (Math.abs(dY) >= 2) {
       const dir = dY > 0 ? 'up' : 'down';
       if (dir === 'down') {
-        // Cartesian Y 하락은 베드 관련
+        // Cartesian Y
         const yMsg = (kin === 'cartesian' || kin === 'corexz')
           ? '베드 마운트/스프링 확인' : '벨트 텐션 감소 가능';
         results.push({ id:'drift_y', status:'warn',
@@ -430,7 +430,7 @@ function compareKinResults(kin, prev, curr) {
     }
   }
 
-  // 피크 수 변화
+  //
   const prevPeaks = (prev.nPeaksX||0) + (prev.nPeaksY||0);
   const currPeaks = (curr.nPeaksX||0) + (curr.nPeaksY||0);
   if (currPeaks > prevPeaks + 2) {
@@ -446,8 +446,8 @@ function compareKinResults(kin, prev, curr) {
   return results;
 }
 
-// ── 쉐이퍼 효과 추정 ────────────────────────────────
-// "이 쉐이퍼를 적용하면 각 피크가 얼마나 억제되는지" 요약
+//
+// " "
 function estimateShaperEffect(shaperResult, axis) {
   if (!shaperResult || !shaperResult.recommended) return null;
   const perf = shaperResult.recommended.performance;
@@ -467,7 +467,7 @@ function estimateShaperEffect(shaperResult, axis) {
 }
 
 
-// ── 키네마틱 유틸리티 (테스트/measure에서 사용) ──────────
+// ( /measure )
 
 function evaluateKinCorrelation(kin, corr) {
   var p = KIN_PROFILES[kin] || KIN_PROFILES.corexy;

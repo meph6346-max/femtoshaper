@@ -1,9 +1,9 @@
 // ============ FEMTO SHAPER i18n v0.8 ============
-// EN 기본, KO 옵션. 모든 탭/서브탭/다이얼로그 키 포함.
+// EN , KO . / / .
 
 const LANG = {
   en: {
-    // 메인 탭
+    //
     tab_shaper:'Shaper', tab_diag:'Diagnostic',
     tab_live:'Live', tab_settings:'Settings',
     // Shaper
@@ -12,7 +12,7 @@ const LANG = {
     btn_start_measure:'Start Measure', btn_stop_measure:'Stop Measure',
     measure_title:'Vibration Measurement', measure_guide:'Attach the sensor to the printer and print any model to measure.<br>Calibration automatically separates X/Y axes.', measuring:'Measuring...',
     log_ready:'Ready. Press "Measure" to begin.',
-    // 쉐이퍼 테이블
+    //
     shaper_perf:'Performance', shaper_lowvib:'Low vibration',
     // Apply
     apply_title:'Apply Input Shaper Result',
@@ -20,7 +20,7 @@ const LANG = {
     apply_download:'Download .gcode', apply_copy:'Copy to clipboard',
     // Print Validation,
     fusion_high:'High Confidence', fusion_medium:'Medium',
-    // Diagnostic 서브탭
+    // Diagnostic
     diag_overview:'Overview',
     diag_empty_title:'Printer Health Check', diag_empty_desc:'Run a measurement in the Shaper tab first.<br>Diagnostics will automatically analyze your printer.', diag_belt:'Belt', diag_carriage:'Carriage',
     diag_frame:'Frame', diag_symmetry:'Symmetry',
@@ -40,7 +40,7 @@ const LANG = {
     diag_ok:'No anomaly detected',
     // Belt
     belt_a_peak:'Belt A Peak', belt_b_peak:'Belt B Peak',
-    // Diagnostic G코드
+    // Diagnostic G
     // Live
     live_guide_title:'What is this chart?',
     // Settings
@@ -57,24 +57,24 @@ const LANG = {
     // Phase 5: Stage 2 Diagnostic
     // Phase 5: Settings
 
-    // ── UI 전체 키 (HTML data-i18n 커버리지 완성) ──
+    // UI (HTML data-i18n )
     // Tabs
     tab_shaper:'Shaper', tab_diag:'Diagnostic', tab_live:'Live', tab_settings:'Settings',
-    // Shaper 탭
+    // Shaper
     peak_x:'Peak X', peak_y:'Peak Y', shaper:'Shaper', max_accel:'Max Accel',
     freq_response:'Frequency Response', stab_basic:'Basic',stab_adv:'Advanced',stab_log:'Log',stab_sys:'System',energy:'Energy', dominant:'Peak', btn_start_live:'Start Live', btn_stop_live:'Stop', btn_apply:'⚡ Apply Result',
-    // Apply 다이얼로그
+    // Apply
     apply_title:'Apply Input Shaper Result',
     apply_edit_hint:'You can adjust values before applying.',
     apply_copy:'Copy G-code', apply_download:'Download G-code',
     // Print & Measure,
-    // Diagnostic 탭
+    // Diagnostic
     tab_diag:'Diagnostic',
     diag_overview:'Overview',
     diag_empty_title:'Printer Health Check', diag_empty_desc:'Run a measurement in the Shaper tab first.<br>Diagnostics will automatically analyze your printer.', diag_status:'Status', diag_complexity:'Complexity Score',
     diag_test_results:'Test Results', diag_recommended:'Recommended Action',
     diag_run_is_first:'Run Quick Measure first to enable Stage 1 analysis.',
-    // Diagnostic 서브탭
+    // Diagnostic
     diag_belt_title:'Belt Compare', diag_belt:'Belt Asymmetry', diag_belt_desc:'Compare A/B belt tension via PSD peak.',
     belt_a_peak:'Belt A Peak', belt_b_peak:'Belt B Peak',
     diag_carriage_title:'Carriage/Bearing', diag_carriage:'Carriage Looseness',
@@ -83,16 +83,16 @@ const LANG = {
     diag_frame_desc:'Detect frame flex via spectral spread.',
     diag_symmetry_title:'Axis Symmetry', diag_symmetry:'Axis Asymmetry',
     diag_symmetry_desc:'Compare X vs Y resonance frequency.',
-    // Settings 탭
+    // Settings
     sec_printer:'Printer Config', build_x:'Build X (mm)', build_y:'Build Y (mm)',
     max_accel_set:'Max Accel (mm/s²)', max_feed:'Max Feed (mm/s)',
     kin_type:'Kinematics', sample_rate:'Sample Rate (Hz)',
     sec_firmware:'Firmware & EEPROM',
     eeprom_save:'EEPROM Save', eeprom_hint:'Temp only = no M500. Permanent = M500 auto.', btn_save:'Save', log_ready:'Ready.',
-    // Live 탭
+    // Live
     // Misc
     config_go_settings:'Settings →',
-    // v0.8 UI 텍스트
+    // v0.8 UI
     demo_banner:'ADXL345 not connected — showing demo data. Not actual measurements.',
 
     onboard_title:'Welcome to FEMTO SHAPER',
@@ -106,33 +106,33 @@ const LANG = {
     save_blocked:'Settings not loaded — reconnect first',    chart_x_empty:'Press [Measure] below, then run G-code from SD card',
     chart_y_empty:'Y-axis starts automatically after X-axis',
     gpio_warn:'Pin changes require ESP32 restart. Default: SCK=4, MISO=2, MOSI=3, CS=1, INT1=0',
-    // Diagnostic 상세 설명
-    // ── 측정 흐름 ──,
-    // ── ADXL 상태 ──
+    // Diagnostic
+    // ,
+    // ADXL
     adxl_esp_fail:'ESP32 not connected',
     adxl_demo_msg:'ADXL345 not connected — showing demo. Not actual results.',
-    // ── 저장 피드백 ──
+    //
     saving:'Saving...', save_blocked:'Settings not loaded — reconnect first', save_ok:'Settings saved successfully.',
     save_fail:'Save failed: ', result_saving:'Saving result...',
     btn_save_result:'Save Result',
-    // ── 초보자 가이드 ──
+    //
     guide_excellent:'🟢 High-speed printer — Apply directly!',
     guide_good:'🟢 Good — Suitable for most prints.',
     guide_ok:'🟡 OK — Effective at slower speeds.',
     guide_low:'🔴 Low — Check belts/mounts/frame, then re-test.',
     warn_low_conf:'🔴 Low confidence — check belt/mount/frame and re-measure.',
-    // ── Live ──,
+    // Live ,
     live_hint_default:'Real-time FFT spectrum. Axis mapping auto-set during IS measurement.',
     live_hint_mapped:'Real-time FFT spectrum. Axis map: ',
-    // ── HTML 요소 ──
+    // HTML
     adxl_log_hint:'Press button to check ADXL345 status.',
-    // ── Validator ──
+    // Validator
     val_pm_none:'Print & Measure not done — cross-validation recommended (fan off).',
     val_no_peak:'No Quick peak — check measurement conditions.',
     val_klipper_hint:'Klipper — paste into printer.RRF supports single frequency only — X applied.',
     val_temp_hint:'Temporary. For permanent: run M500 manually.',
     val_quick_unconfirmed:'Quick peak not confirmed by Print — possible fan interference.',
-    // ── Log 메시지 ──
+    // Log
     log_adxl_ok:'ADXL345 connected (DevID: ',
     log_adxl_fail:'ADXL345 not connected — switching to demo mode',
     log_wiring:'Check wiring: ',
@@ -209,10 +209,10 @@ const LANG = {
     eeprom_no:'임시 적용만 (권장)', eeprom_yes:'M500 포함 (EEPROM)',
     eeprom_hint:'임시 적용 권장. 확인 후 M500 수동 실행.', btn_save:'장치에 저장',
     // Phase 4: Result Fusion
-    // Phase 5: Stage 2 진단
+    // Phase 5: Stage 2
     // Phase 5: Settings
 
-    // ── UI 전체 키 (KO) ──
+    // UI (KO)
     tab_shaper:'쉐이퍼', tab_diag:'진단', tab_live:'실시간', tab_settings:'설정',
     peak_x:'X 피크', peak_y:'Y 피크', shaper:'쉐이퍼', max_accel:'최대 가속',
     freq_response:'주파수 응답', dominant:'주공진', btn_apply:'⚡ 결과 적용',
@@ -321,7 +321,7 @@ function setLang(lang) {
   });
   const lb = document.getElementById('liveBtnTxt');
   if (lb) lb.textContent = t('btn_start_live');
-  // R17.21: 언어 전환 시 기존 로그 비워 혼용 방지
+  // R17.21:
   ['logShaper', 'logAdxl', 'logDebug'].forEach(id => {
     const el = document.getElementById(id);
     if (el && el.children.length > 0) {
