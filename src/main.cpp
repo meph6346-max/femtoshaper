@@ -1068,15 +1068,29 @@ void handleSaveResult() {
   if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
-  prefs.begin("femto_res",false);
+  // Previously ignored `prefs.begin` return + every putXxx return, so NVS
+  // failures (full flash, mount error) returned 200 OK and the client was
+  // falsely assured the save succeeded. Now propagate failure via 507.
+  if (!prefs.begin("femto_res", false)) {
+    server.send(507, "application/json",
+      "{\"ok\":false,\"error\":\"nvs_open_failed\",\"hint\":\"POST /api/reset?all=1 to factory reset\"}");
+    return;
+  }
   if (doc["freqX"].is<float>())        prefs.putFloat("freqX",      doc["freqX"]);
   if (doc["freqY"].is<float>())        prefs.putFloat("freqY",      doc["freqY"]);
   if (doc["shaperType"].is<const char*>())  prefs.putString("shaperType",doc["shaperType"].as<const char*>());
   if (doc["shaperTypeX"].is<const char*>()) prefs.putString("shaperTypeX",doc["shaperTypeX"].as<const char*>());
   if (doc["shaperTypeY"].is<const char*>()) prefs.putString("shaperTypeY",doc["shaperTypeY"].as<const char*>());
   if (doc["confidence"].is<float>())   prefs.putFloat("confidence", doc["confidence"]);
-  prefs.putULong("savedAt",millis());
+  // Use the last put's return as a write-success probe - 0 means NVS
+  // write failed (namespace full, flash wear-out, etc.).
+  size_t lastWrite = prefs.putULong("savedAt", millis());
   prefs.end();
+  if (lastWrite == 0) {
+    server.send(507, "application/json",
+      "{\"ok\":false,\"error\":\"nvs_write_failed\",\"hint\":\"POST /api/reset?all=1 to factory reset\"}");
+    return;
+  }
   server.send(200,"application/json","{\"ok\":true}");
 }
 
@@ -1116,7 +1130,12 @@ void handleSaveDiag() {
   if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
-  prefs.begin("femto_diag",false);
+  // See handleSaveResult for the NVS-open-failure handling rationale.
+  if (!prefs.begin("femto_diag", false)) {
+    server.send(507, "application/json",
+      "{\"ok\":false,\"error\":\"nvs_open_failed\"}");
+    return;
+  }
   if (doc["belt_status"].is<const char*>()) prefs.putString("belt_st", doc["belt_status"].as<const char*>());
   if (doc["carriage_status"].is<const char*>()) prefs.putString("car_st", doc["carriage_status"].as<const char*>());
   if (doc["frame_status"].is<const char*>()) prefs.putString("frame_st", doc["frame_status"].as<const char*>());
