@@ -8,6 +8,51 @@
 
 ---
 
+### 2026-04-22 round 5 (Claude Opus 4.7): 4 more fixes — first round run through `g++ -fsyntax-only`
+
+Round 4 closed the unclosed string literals, which newly exposed real code
+to the compiler. Running `g++ -std=c++17 -fsyntax-only` (with stubbed
+Arduino/ESP32 headers) immediately surfaced 1 forward-reference bug and 1
+wrong-comparison bug that brace balance could never catch.
+
+**Found and fixed:**
+
+- **measState forward reference** (CRITICAL, would fail to build). Line 656
+  in `handlePostConfig` used `measState == MEAS_PRINT` but the enum and
+  variable were declared 300 lines later. Previously this was hidden
+  inside round 4's BF-R4-003 runaway string (lines 457–658 were
+  invisible). Fix: moved the `// Measurement state machine` block (enum,
+  `measState`, live/SSE state, peak tracking, measured-PSD snapshot,
+  `MEAS_MAX_BINS`) from line 962 to just before `handlePostConfig`.
+  Affected identifiers: `measState`, `MEAS_PRINT`, `measPsdValid`,
+  `measSampleRate`, `measBinMin`, `measBinCount`, `measPsdX/Y`,
+  `measVarX/Y`, `measJerkX/Y`.
+- **`handleLed` pointer comparison** (HIGH, long-standing logic bug).
+  `const char* st = doc["state"] | "off"; if (st == "on")` compared
+  pointers, not strings. The `on` and `blink` branches were **never
+  reachable** — `POST /api/led {"state":"on"}` always fell through to
+  `LED_OFF`. Changed `==` to `strcmp()`. Surfaced because this round was
+  the first to run the compiler with `-Wall`.
+- **Indentation fix** at `main.cpp:1129` (cosmetic). `DspStatus st =
+  dspGetStatus();` was at column 0 inside a function body; re-indented.
+- **UTF-8 BOM removed** from `data/app.js`. Project convention
+  (documented at the top of this file) is "UTF-8 (no BOM)".
+
+**Verification:**
+```
+braces + parens: balanced on main.cpp and dsp.h
+g++ -std=c++17 -fsyntax-only -I/tmp/stubs src/main.cpp   # 0 errors
+node --check data/*.js test/*.js                         # all clean
+```
+
+**Full write-up:** see [`BUGFIX_COMMENT_ABSORB_ROUND5.md`](./BUGFIX_COMMENT_ABSORB_ROUND5.md)
+for per-bug detail, the suspicious-but-unchanged list (unused `axis`
+params in `handleGetPsd` / `handleLiveAxis`), and an updated detection
+workflow that recommends running the syntax-only compile after each
+runaway-string pass.
+
+**Running total:** 133 (before) + 4 = **137 bugs fixed**.
+
 ### 2026-04-22 round 4 (Claude Opus 4.7): 5 more unclosed-string bugs (three huge runaways)
 
 After round 3 merged (PR #2), a deeper scan found that the round-3 brace

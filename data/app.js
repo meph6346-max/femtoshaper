@@ -1,4 +1,4 @@
-﻿// ============ FEMTO SHAPER App v0.9 ============
+// ============ FEMTO SHAPER App v0.9 ============
 // UI + + ??(filter.js, measure.js? )
 
 // ? ? ? ? PSD (DEMO_MODE ? ? ??fallback) ? ?

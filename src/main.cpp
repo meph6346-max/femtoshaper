@@ -647,6 +647,32 @@ void handleGetConfig() {
   sendJson(doc);
 }
 
+// ============ Measurement state machine ============
+// 3 states: IDLE -> PRINT (sampling) -> DONE. dsp.h::dspFeed() is fed only in PRINT.
+enum MeasState { MEAS_IDLE, MEAS_PRINT, MEAS_DONE };
+static MeasState measState = MEAS_IDLE;
+
+// v1.0: Live SSE broadcast channel - single persistent client
+static WiFiClient liveSSEClient;
+static bool  liveMode = false;
+static int   liveSegReset = 0;
+
+// v1.0: ? ???(????DSP????? ????????
+static float peakFreqX = 0.0f, peakFreqY = 0.0f;
+static float peakPowerX = 0.0f, peakPowerY = 0.0f;
+static int   segCountX = 0, segCountY = 0;
+
+// v1.0: Measured PSD snapshot (saved at print_stop; used for /api/psd?mode=print)
+#define MEAS_MAX_BINS DSP_NBINS
+static float measPsdX[MEAS_MAX_BINS], measPsdY[MEAS_MAX_BINS];
+static float measVarX[MEAS_MAX_BINS], measVarY[MEAS_MAX_BINS];
+// Phase 2: Jerk PSD ?? ??(?? ?? ? )
+static float measJerkX[MEAS_MAX_BINS], measJerkY[MEAS_MAX_BINS];
+static int   measSampleRate = (int)DSP_FS_DEFAULT;
+static int   measBinMin = 0;
+static int   measBinCount = 0;
+static bool  measPsdValid = false;
+
 void handlePostConfig() {
   if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
@@ -853,9 +879,9 @@ void handleLed() {
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
   const char* st = doc["state"] | "off";
-  if      (st=="on")    ledState=LED_ON;
-  else if (st=="blink") ledState=LED_BLINK;
-  else                  ledState=LED_OFF;
+  if      (strcmp(st, "on")    == 0) ledState = LED_ON;
+  else if (strcmp(st, "blink") == 0) ledState = LED_BLINK;
+  else                               ledState = LED_OFF;
   server.send(200,"application/json","{\"ok\":true}");
 }
 
@@ -959,31 +985,6 @@ unsigned long lastApCheck = 0;
 int apFailCount = 0;  // counts consecutive STA reconnect failures before AP fallback
 static wifi_power_t txPower = WIFI_POWER_8_5dBm;  // default WiFi TX power (overridden by cfg.txPower)
 
-// ============ Measurement state machine ============
-// 3 states: IDLE -> PRINT (sampling) -> DONE. dsp.h::dspFeed() is fed only in PRINT.
-enum MeasState { MEAS_IDLE, MEAS_PRINT, MEAS_DONE };
-static MeasState measState = MEAS_IDLE;
-
-// v1.0: Live SSE broadcast channel - single persistent client
-static WiFiClient liveSSEClient;
-static bool  liveMode = false;
-static int   liveSegReset = 0;
-
-// v1.0: ? ???(????DSP????? ????????
-static float peakFreqX = 0.0f, peakFreqY = 0.0f;
-static float peakPowerX = 0.0f, peakPowerY = 0.0f;
-static int   segCountX = 0, segCountY = 0;
-
-// v1.0: Measured PSD snapshot (saved at print_stop; used for /api/psd?mode=print)
-#define MEAS_MAX_BINS DSP_NBINS
-static float measPsdX[MEAS_MAX_BINS], measPsdY[MEAS_MAX_BINS];
-static float measVarX[MEAS_MAX_BINS], measVarY[MEAS_MAX_BINS];
-// Phase 2: Jerk PSD ?? ??(?? ?? ? )
-static float measJerkX[MEAS_MAX_BINS], measJerkY[MEAS_MAX_BINS];
-static int   measSampleRate = (int)DSP_FS_DEFAULT;
-static int   measBinMin = 0;
-static int   measBinCount = 0;
-static bool  measPsdValid = false;
 
 void saveMeasPsdToNVS() {
   prefs.begin("femto_mpsd", false);
@@ -1125,7 +1126,7 @@ void handleGetPsd() {
   // axis ???? ? ? ?? ? ??
   const char* axis = server.hasArg("axis") ? server.arg("axis").c_str() : "current";
 
-DspStatus st = dspGetStatus();
+  DspStatus st = dspGetStatus();
   JsonDocument doc;
   doc["ok"]        = adxlOK;
   doc["segCount"]  = st.segCount;
