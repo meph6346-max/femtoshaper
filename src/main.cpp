@@ -980,7 +980,15 @@ static inline int currentPsdBinCount() {
 
 // Background PSD persistence (NVS-backed, blob-encoded)
 void loadBgPsdFromNVS() {
-  prefs.begin("femto_bg", true);  // read-only
+  // R24/R25 established that prefs.begin() return must always be checked so
+  // a missing/unmounted namespace does not silently fall through to default
+  // values that look like "no saved bgPsd" when the real cause is an NVS
+  // mount failure. Without this, a corrupted NVS reports the same way as a
+  // fresh device and masks the underlying problem.
+  if (!prefs.begin("femto_bg", true)) {
+    Serial.println("[NVS] bgPsd load: cannot open femto_bg (first boot or mount failure)");
+    return;
+  }
   if (prefs.getBool("valid", false)) {
     memset(dspBgPsd, 0, sizeof(dspBgPsd));
     size_t len = prefs.getBytesLength("psd");
@@ -1672,15 +1680,21 @@ void setup() {
   // Restore background PSD from NVS.
   // v0.8 legacy format: 513-bin flat array keyed as "b0". Detect and purge so
   // the current 59-bin format (loadBgPsdFromNVS) can take over.
+  // Both begin() returns checked (R24/R25 pattern): if open fails we skip the
+  // probe entirely rather than operating on an invalid handle.
   {
-    prefs.begin("femto_bg", true);  // read-only probe
-    bool hasLegacy = prefs.isKey("b0");
-    prefs.end();
-    if (hasLegacy) {
-      prefs.begin("femto_bg", false);  // reopen for write
-      prefs.clear();
+    if (prefs.begin("femto_bg", true)) {
+      bool hasLegacy = prefs.isKey("b0");
       prefs.end();
-      Serial.println("[NVS] Cleared legacy 513-bin bgPsd");
+      if (hasLegacy) {
+        if (prefs.begin("femto_bg", false)) {
+          prefs.clear();
+          prefs.end();
+          Serial.println("[NVS] Cleared legacy 513-bin bgPsd");
+        } else {
+          Serial.println("[NVS] legacy clear: cannot reopen femto_bg for write");
+        }
+      }
     }
   }
   loadBgPsdFromNVS();

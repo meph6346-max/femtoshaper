@@ -1991,3 +1991,18 @@ New memory file `feedback_english_comments.md` saved. All future edits:
 4. Run syntax check (`node --check` for JS) before committing
 
 ---
+
+## Round 27 — Restart-from-scratch lap 1/3 (2026-04-22)
+
+See `BUGFIX_COMMENT_ABSORB_ROUND27.md` for the per-item writeup.
+
+| # | File | Class | Summary |
+|---|---|---|---|
+| BF-R27-001 | `src/main.cpp` `loadBgPsdFromNVS` | LOW | prefs.begin() return now checked (R24/R25 pattern) |
+| BF-R27-002 | `src/main.cpp` `setup()` legacy-bgPsd probe | LOW | both begin() returns now checked on probe + reopen |
+
+Absorbed-code origin pattern confirmed exhausted. Runaway-strings chain
+link confirmed clean. NVS read-path hardened to match R24/R25 write-path
+pattern. Running total **197 bugs fixed** across rounds 1-27.
+
+---
