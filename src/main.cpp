@@ -40,8 +40,7 @@ inline void sendJson(JsonDocument& doc) {
   // R32: measureJson() predicts length before serializing to prevent truncation
   size_t need = measureJson(doc);
   if (need + 1 >= sizeof(_jbuf)) {
-    Serial.printf("[JSON] Response too large: %u > %u
-", (unsigned)need, (unsigned)sizeof(_jbuf));
+    Serial.printf("[JSON] Response too large: %u > %u\n", (unsigned)need, (unsigned)sizeof(_jbuf));
     server.send(507, "application/json", "{\"ok\":false,\"err\":\"JSON_too_large\"}");
     return;
   }
@@ -408,7 +407,7 @@ void handleAdxlRaw() {
 void handleAdxlRate() {
   if (server.method() == HTTP_POST) {
     adxlRateSamples = 0; adxlRateStart = millis(); adxlRateMeasuring = true;
-    server.send(200, "application/json", "{\"ok\":true,\"msg\":\"癲ル쉵?猷????筌믨퀣援?"}");
+    server.send(200, "application/json", "{\"ok\":true,\"msg\":\"rate sampling started\"}");
     return;
   }
   JsonDocument doc;
@@ -455,7 +454,7 @@ void loadConfig() {
   if (!prefs.begin("femto", true)) {  // read-only probe; may fail on fresh flash
     prefs.end();
     firstBoot = true;
-    Serial.println("[NVS] 癲???딅텑???????れ삀??????源놁젳 ????);
+    Serial.println("[NVS] first-boot: no saved config, writing defaults");
     saveConfig();  // ?? ??? ??? ??NVS ?? ??
   } else {
     prefs.end();
@@ -1843,7 +1842,7 @@ void loop() {
       // ???? ????? ? ?? ? ???? ?? ?? ????? ??
       if (measState == MEAS_IDLE || measState == MEAS_DONE) {
         if (freeHeap < 20000) {
-          Serial.println("[HEAP] ?怨멸땀?쀫씛??????域???);
+          Serial.println("[HEAP] critical low - rebooting");
           ESP.restart();
         }
       }
@@ -1889,7 +1888,7 @@ void loop() {
         WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);
         dnsServer.start(53, "*", AP_IP);
       } else {
-        Serial.println("[WiFi] Stage 3 ???域???);
+        Serial.println("[WiFi] Stage 3 failed - rebooting");
         ESP.restart();
       }
     } else {
