@@ -81,6 +81,8 @@ function toggleLive() {
     liveEventSource = null;
     fetch('/api/live/stop', {method:'POST'}).catch(()=>{});
     liveData.fill(0);
+    // R19.28: 토글 OFF 시 차트 명시적 destroy (반복 토글 메모리 누수 방지)
+    if (typeof destroyLiveChart === 'function') destroyLiveChart();
     drawLiveFrame(liveData);
     const peakEl = document.getElementById('livePeak');
     const peakYEl = document.getElementById('livePeakY');

@@ -407,7 +407,7 @@ void handleAdxlFifo() {
 // ?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름
 // Config
 // ?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름
-// Config?????뵬 ?怨룸뼊???醫롫섧??void saveConfig();  // ?袁④컩 ?醫롫섧 (loadConfig?癒?퐣 筌??봔?????紐꾪뀱)
+// Config?????뵬 ?怨룸뼊???醫롫섧??bool saveConfig();  // ?袁④컩 ?醫롫섧 (loadConfig?癒?퐣 筌??봔?????紐꾪뀱)
 
 void loadConfig() {
   // 筌??봔??揶쏅Ŋ?: NVS??"femto" ??쇱뿫??쎈읂??곷뮞揶쎛 ??곸몵筌?疫꿸퀡??첎?????  bool firstBoot = false;
@@ -469,15 +469,25 @@ void loadConfig() {
 
   dspMinValidSegs = cfg.minSegs;
   dspSetSampleRate((float)cfg.sampleRate);
+  // R5.1/R18.24: 캘리브레이션 벡터가 기본값 [1,0,0]/[0,1,0]이면 강제로 useCalWeights=false
+  // (NVS 손상 시에도 안전: 저장된 useCalWeights=true 가 잘못된 캘리브로 측정되는 것 방지)
+  bool isDefaultCal = (cfg.calWx[0] == 1.0f && cfg.calWx[1] == 0.0f && cfg.calWx[2] == 0.0f &&
+                       cfg.calWy[0] == 0.0f && cfg.calWy[1] == 1.0f && cfg.calWy[2] == 0.0f);
+  if (cfg.useCalWeights && isDefaultCal) {
+    cfg.useCalWeights = false;
+    Serial.println("[CFG] useCalWeights=true with default vectors - forced to false (calibration not done)");
+  }
   if (firstBoot) {
-    Serial.println("[NVS] 疫꿸퀡??첎?嚥≪뮆諭??袁⑥┷");
+    Serial.println("[NVS] first boot - defaults loaded");
   }
   Serial.printf("[CFG] %dx%d accel=%d scv=%.1f fw=%s\n",
     cfg.buildX, cfg.buildY, cfg.accel, cfg.scv, cfg.firmware);
 }
 
-void saveConfig() {
-  prefs.begin("femto", false);
+// R4.2: NVS 쓰기 실패 감지 - 마지막 putInt 결과로 판단 (0 = 실패)
+// 반환값: true = 성공, false = NVS 풀/실패
+bool saveConfig() {
+  if (!prefs.begin("femto", false)) return false;
   prefs.putInt("buildX",     cfg.buildX);
   prefs.putInt("buildY",     cfg.buildY);
   prefs.putInt("accel",      cfg.accel);
@@ -508,8 +518,10 @@ void saveConfig() {
   prefs.putString("staPass",  cfg.staPass);
   prefs.putString("hostname", cfg.hostname);
   prefs.putInt("powerHz",     cfg.powerHz);
-  prefs.putInt("liveSegs",    cfg.liveSegs);
+  // R4.2: liveSegs 쓰기 결과로 NVS 가용성 판정 (0 = 실패/풀)
+  size_t lastWrite = prefs.putInt("liveSegs", cfg.liveSegs);
   prefs.end();
+  return lastWrite > 0;
 }
 
 void serveFile(const char* path, const char* ct) {
@@ -619,7 +631,12 @@ void handlePostConfig() {
     if (cfg.liveSegs > 10) cfg.liveSegs = 10;
   }
   dspSetSampleRate((float)cfg.sampleRate);
-  saveConfig();
+  // R4.2/R20.33: NVS 쓰기 실패(풀) 시 클라이언트에 명시적 에러 전달
+  if (!saveConfig()) {
+    server.send(507, "application/json",
+      "{\"ok\":false,\"error\":\"nvs_full\",\"hint\":\"POST /api/reset?all=1 to factory reset\"}");
+    return;
+  }
   server.send(200,"application/json","{\"ok\":true}");
 }
 

@@ -100,8 +100,11 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     let psdXForAnalysis = realPsdX;
     let psdYForAnalysis = realPsdY;
     let _hfActive = false;
+    // R10.2: jerkX 모두 0이면 H(f) 의미 없음 (구버전 펌웨어/측정 미완료)
+    const _jerkValid = (arr) => Array.isArray(arr) && arr.length === realPsdX.length &&
+                                arr.some(v => Number.isFinite(v) && v > 1e-9);
     if (typeof window !== 'undefined' && window._hfMode === true &&
-        d.jerkX && d.jerkY && d.jerkX.length === realPsdX.length &&
+        _jerkValid(d.jerkX) && _jerkValid(d.jerkY) &&
         typeof computeTransferFunction === 'function') {
       const hX = computeTransferFunction(realPsdX, d.jerkX);
       const hY = computeTransferFunction(realPsdY, d.jerkY);
@@ -135,8 +138,9 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     // R11.1: closeMulti null guard, R12.4: cleanX 빈 배열 가드
     if (typeof detectPeaksDeflation === 'function' && typeof detectPeaks === 'function') {
       const closeMulti = (peaks) => {
+        // R12.6: atomic destructure - 비동기 변경에도 일관된 스냅샷
         if (!Array.isArray(peaks) || peaks.length < 2) return false;
-        const p1 = peaks[0], p2 = peaks[1];
+        const [p1, p2] = peaks;
         if (!p1 || !p2 || !isFinite(p1.f) || !isFinite(p2.f)) return false;
         const df = Math.abs(p1.f - p2.f);
         const p1v = (isFinite(p1.v) ? p1.v : null) ?? (isFinite(p1.power) ? p1.power : null);
@@ -481,7 +485,13 @@ function updateApplyPreview() {
 }
 
 
+let _downloadInProgress = false;
 function downloadApply() {
+  // R20.31: 빠른 연타 디바운스 (1초)
+  if (_downloadInProgress) return;
+  _downloadInProgress = true;
+  setTimeout(() => { _downloadInProgress = false; }, 1000);
+
   const freqX    = parseFloat(document.getElementById('apFreqX')?.value) || 0;
   const freqY    = parseFloat(document.getElementById('apFreqY')?.value) || 0;
   const shaperX  = document.getElementById('apShaperX')?.value || 'mzv';
@@ -547,11 +557,19 @@ async function doSaveResult() {
 
 // saveResultToESP: ?쒓굅??(dead code)
 
+let _lastLoadedResultTs = 0;
 function loadResultFromESP() {
   fetch('/api/result')
     .then(r => r.json())
     .then(async (data) => {
       if (!data.hasResult) return;
+      // R20.30: 멀티탭 race 방지 - 이미 로드한 더 최신 결과가 있으면 무시
+      const ts = data.savedAt || 0;
+      if (ts > 0 && ts < _lastLoadedResultTs) {
+        appLog('logShaper', `<span class="log-ok">i</span> Skipping older result (other tab has newer)`);
+        return;
+      }
+      _lastLoadedResultTs = ts;
       const peakX = data.freqX, peakY = data.freqY;
       peakFreqXGlobal = peakX; peakFreqYGlobal = peakY;
 

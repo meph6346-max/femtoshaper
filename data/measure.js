@@ -164,18 +164,23 @@ async function stopPrintMeasure() {
     showSaveResultBtn(savedFreqX, savedFreqY);
 
   } catch(e) {
-    appLog('logShaper', `<span class="log-err">✗</span> ${e.message}`);
-    measPhase = 'idle';
-    setPrintMeasBtn('idle');
+    // R9.1: stop 에러 시 사용자 컨텍스트 보존 - 'done' 유지하고 재시도 안내
+    appLog('logShaper', `<span class="log-err">\u2717</span> ${e.message}`);
+    appLog('logShaper', `<span class="log-err">!</span> 결과를 가져오지 못했습니다. [완료]를 다시 누르거나 측정을 재시작하세요.`);
+    measPhase = 'done';  // 'idle'로 되돌리지 않음 - 사용자가 재시도 가능
+    setPrintMeasBtn('done');
     ledOn();
   }
 }
+
+// R13.10: 매직넘버 상수화 - convergence 999 = "수렴 측정 불가/대기 중"
+const CONVERGENCE_NOT_READY = 999;
 
 function startPrintPolling() {
   stopPrintPolling();
   let lastLog = Date.now();
   let autoNotified = false;
-  let phase = 'init';  // init → collecting → converging → ready
+  let phase = 'init';  // init -> collecting -> converging -> ready
 
   printPollTimer = setInterval(async () => {
     try {
@@ -184,14 +189,14 @@ function startPrintPolling() {
 
       const segX = d.segCountX || 0;
       const segTotal = d.segTotal || 0;
-      const cvX = d.convergenceX || 999;
-      const cvY = d.convergenceY || 999;
+      const cvX = d.convergenceX || CONVERGENCE_NOT_READY;
+      const cvY = d.convergenceY || CONVERGENCE_NOT_READY;
       const corr = d.correlation || 0;
       const gr = d.gateRatio || 0;
       const cvMax = Math.max(cvX, cvY);
 
       // 진행바 — 수렴 기반
-      const pct = cvMax >= 999 ? Math.min(20, Math.round(segX / 5))
+      const pct = cvMax >= CONVERGENCE_NOT_READY ? Math.min(20, Math.round(segX / 5))
                 : cvMax > 3 ? 30 : cvMax > 1 ? 60 : 90;
       const progBar = document.getElementById('pmProgressBar');
       const progEl = document.getElementById('pmProgress');
@@ -206,7 +211,7 @@ function startPrintPolling() {
 
         // 상태 전환
         const newPhase = segX < 10 ? 'init'
-                       : cvMax >= 999 ? 'collecting'
+                       : cvMax >= CONVERGENCE_NOT_READY ? 'collecting'
                        : cvMax > 1 ? 'converging' : 'ready';
         const phaseChanged = newPhase !== phase;
         phase = newPhase;

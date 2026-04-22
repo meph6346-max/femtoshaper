@@ -135,6 +135,18 @@ function resetLiveHistory() {
   if (st) st.textContent = '';
 }
 
+// R19.28: Live 차트 명시적 destroy (반복 토글로 인한 메모리 누수 방지)
+function destroyLiveChart() {
+  if (_liveChart) {
+    try { _liveChart.destroy(); } catch (e) {}
+    _liveChart = null;
+  }
+  _peakHold.fill(0);
+  _hitMap.fill(0);
+  liveDataY.fill(0);
+  _liveFrameCount = 0;
+}
+
 function drawLiveFrame(liveData, dataY) {
   const canvas = document.getElementById('cLive');
   if (!canvas) return;

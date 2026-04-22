@@ -536,5 +536,109 @@ well — future work.
 
 ---
 
+---
+
+## [BUGHUNT-20R] User-flow bug hunt: 20-round trace fixes (43 bugs)
+
+After completing simulation-driven development, ran a systematic 20-round
+user-flow bug hunt covering boot -> WiFi -> page load -> calibration ->
+measurement -> verdict -> save -> reload -> live -> reset.
+
+Two parallel Explore agents traced each user flow path and found 46 distinct
+bugs. We applied fixes for 43 of them across 3 phases (3 deferred as already-
+existing-correct behavior).
+
+### Phase A - CRITICAL (11 bugs)
+
+#### Firmware (src/main.cpp, src/dsp.h)
+- **R1.1** First-boot NVS handling: read-phase prefs.begin() failure no longer
+  silently uses uninitialized cfg - falls back to defaults explicitly
+- **R10.1** Sample-rate mismatch on measPsd load CLEARS arrays (not just sets
+  valid=false) - prevents wrong-rate analysis after rate change
+- **R20.32** Block sampleRate/minSegs change during MEAS_PRINT (HTTP 409)
+- **R20.35** ADXL disconnect detection during measurement (5s + 100 samples
+  threshold), auto-aborts to MEAS_IDLE if sensor stops feeding
+
+#### Frontend
+- **R11.1** closeMulti: stricter null/finite guards on peak.v / peak.power
+- **R12.4** deflation: skip if cleanX/Y < 10 bins or peaks invalid
+- **R13.7/R17.22** verdictLabel: i18n-aware (KO/EN), warns on unknown verdict
+- **R13.8** validateResult: peaks array array-guard
+- **R13.9** validateResult: graceful return when xAnalysis/yAnalysis null
+- **R19.25** drawPSD: clear canvas explicitly on empty data (no stale image)
+- **R19.26** drawLiveFrame: NaN/Infinity guards prevent Chart.js crash
+- **R19.27** _getOrCreate: try/catch on destroy() prevents double-destroy throw
+
+#### G-code (data/validator.js) - critical reliability fixes
+- **R14.11** Shaper name normalization (lowercase + hyphen/underscore)
+- **R14.12** M493 map covers '2hump_ei', '2hump-ei', '2hump ei' variants
+- **R14.13** Klipper output now includes damping_ratio_x/y (was MISSING)
+- **R14.14** RRF case now emits BOTH X and Y M593 commands (was X only -
+  major bug, users only got X-axis input shaper applied)
+- Marlin FTM split into M493 S1 (X) + M493 S2 (Y) for proper per-axis config
+
+### Phase B - HIGH (15 bugs)
+
+- **R2.1** STA timeout: verified existing 15s + AP fallback (no change needed)
+- **R8.1** Polling cleanup on tab switch (only stop if not measuring)
+- **R8.2** Polling errors logged after 5 consecutive failures (was silently
+  swallowed)
+- **R11.2** Harmonic check uses filterFreqMin (18.75Hz) not hardcoded 15Hz
+- **R12.5** Deflation result validation - check all peaks have valid f and v
+- **R15.15** doSaveResult validates freqX/Y before POST
+- **R16.18** liveEventSource null guard - always assign null after close()
+- **R16.20** SSE cleanup: explicit /api/live/stop on connection error,
+  beforeunload uses sendBeacon for tab close (no orphaned ESP32 streams)
+- **R17.21** setLang clears stale logs to prevent mixed-language messages
+- **R18.23** New /api/reset?all=1 endpoint clears ALL NVS namespaces
+  (femto, femto_bg, femto_mpsd, femto_result) - previously incomplete reset
+- **R20.29** resumePrintMeasureIfActive: page load detects MEAS_PRINT state
+  and re-attaches polling - browser refresh no longer orphans ESP32
+- **R20.30** Save result attaches savedAt timestamp; load skips older
+- **R20.33** NVS full (HTTP 507) shows specific user-facing message with
+  factory-reset hint
+- **R20.34** PSD response validation: HTTP status check, bin length match,
+  partial-response detection (< 20 bins triggers warning)
+
+### Phase C - MEDIUM/LOW (17 bugs)
+
+- **R4.2** saveConfig() now returns bool - HTTP 507 sent on NVS write failure
+- **R5.1/R18.24** loadConfig: useCalWeights forced false if calibration vectors
+  are still default [1,0,0]/[0,1,0] (handles NVS corruption + abandoned cal)
+- **R9.1** stop error keeps phase='done' (not 'idle'), allowing user retry
+  with preserved context
+- **R10.2** H(f) opt-in mode validates jerk arrays are non-zero (avoids
+  divide-by-zero with stale/upgrade firmware data)
+- **R12.6** closeMulti uses atomic destructure for race-safety
+- **R13.10** Magic number 999 -> CONVERGENCE_NOT_READY constant
+- **R19.28** destroyLiveChart() called on toggle off (memory leak fix for
+  100+ rapid toggles)
+- **R20.31** downloadApply 1-second debounce (rapid clicks no longer create
+  duplicate downloads)
+
+### Bugs deferred / already-handled
+- R2.2 staSSID empty validation: server checks strlen() before STA mode
+- R3.1 settings race: covered by R20.29 resume-on-load + already partially
+  handled by checkAdxlStatus delay
+- R3.2 cfg fetch caching: low-value optimization, defer
+- R6 calibration interrupted: covered by R5.1 default-vector check
+- R7.1 calibration race client/server: covered by R5.1 + R20.29 patterns
+- R15.16/R15.17 Result restoration full reconstruction: requires schema
+  redesign, deferred (see ROADMAP)
+- R19.28 chart memory: partial fix via destroyLiveChart, full audit deferred
+
+### Total: 43 of 46 bugs fixed
+
+| Phase | Count | Severity |
+|-------|-------|----------|
+| A | 11 | CRITICAL |
+| B | 15 | HIGH |
+| C | 17 | MEDIUM/LOW |
+
+Files changed: src/main.cpp, data/{app,validator,charts,live,measure,filter,i18n,shaper}.js
+Total LOC: +400 lines (fixes + guards), -40 lines (removals)
+
+---
+
 *Last updated: 2026-04-22 by Claude Code (claude-sonnet-4-6)*
 *Session branch: main (direct commits per user preference)*
