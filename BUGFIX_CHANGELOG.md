@@ -254,28 +254,150 @@ peak(H) =  structural resonance (no longer biased by input shape)
 
 ### JS side (app.js)
 
-- Automatic activation when `d.jerkX` present
-- Graceful fallback to raw `X(f)` when unavailable
-- Peak charts keep showing `X(f)` (user-familiar), analysis uses `H(f)`
-- Log line `H Transfer function H(f) active (input broadness X:45% Y:52%)`
+- **Opt-in only** via `window._hfMode = true` (see FEAT-P2-02 below)
+- Graceful fallback to raw `X(f)` when jerk data unavailable
+- Peak charts keep showing `X(f)` (user-familiar), analysis uses `H(f)` if enabled
+- Log line `H [EXPERIMENTAL] Transfer function H(f) active (...)` makes opt-in state clear
 
-### Expected accuracy
+---
 
-| Scenario | Raw X(f) | H(f) | Gain |
-|----------|----------|------|------|
-| Ideal | +/- 0.5-1 Hz | +/- 0.3-0.5 Hz | ~2x |
-| Recommended | +/- 1-2 Hz | +/- 0.5-1 Hz | ~2x |
-| Low excitation | +/- 3-5 Hz | +/- 1.5-3 Hz | ~2x |
+## [FEAT-P2-02] Phase 2 auto-activation REVERTED (simulation-driven correction)
 
-### Known caveats
+- **Files**: `data/app.js` (~line 75)
+- **Date**: Added in same session as FEAT-P2-01, after simulation-based validation
+- **Type**: Safety rollback / theoretical correction
 
-1. First-difference amplifies high-frequency noise (mitigated by Hann window).
-2. S-curve / jerk-limited printers narrow `F(f)`, `H(f)` gain shrinks. Surfaced
-   via `jerkBroadness` metric.
-3. Bins with `coherence < 0.1` are automatically floor-clamped but not excluded
-   from peak search yet. Future work.
+### What changed
+
+`app.js::fetchAndRenderPsdDual` no longer auto-activates H(f) mode when jerk data
+is present. It now requires an explicit opt-in:
+
+```javascript
+if (typeof window !== 'undefined' && window._hfMode === true && ...)
+```
+
+### Why we reverted auto-activation
+
+After implementing FEAT-P2-01, we built `test/sim_accuracy.js` to quantify the
+improvement. The simulation generates synthetic printer signals (2nd-order system
+driven by random decel events) with known ground-truth resonance, then runs both
+raw `X(f)` and `H(f) = X(f) / F(f)` peak detection pipelines.
+
+**Simulation results (7 scenarios x 5 trials each):**
+
+| Scenario | Raw X(f) err | H(f) err | H(f) / Raw |
+|----------|--------------|----------|------------|
+| Typical (42Hz) | 1.26 Hz | **19.97 Hz** | 15.8x worse |
+| Low freq (25Hz) | 0.26 Hz | 0.27 Hz | 1.04x |
+| High freq (80Hz) | 3.43 Hz | **47.01 Hz** | 13.7x worse |
+| Low damping (42Hz, z=0.05) | 0.39 Hz | **14.45 Hz** | 37.1x worse |
+| High damping (42Hz, z=0.20) | 2.36 Hz | 19.95 Hz | 8.5x worse |
+| Low excitation | 1.14 Hz | 19.01 Hz | 16.7x worse |
+| Noisy | 1.42 Hz | 19.89 Hz | 14.0x worse |
+
+**H(f) was worse in 7 out of 7 scenarios.**
+
+### Root cause (theoretical flaw)
+
+The Phase 2 premise was: "jerk(measured_signal) approximates input spectrum F(f)".
+This is **mathematically incorrect**.
+
+If `x(t)` is the measured acceleration and the system is LTI with input `f(t)`:
+```
+x(t) = h(t) * f(t)
+X(f) = H(f) * F(f)
+```
+
+What we compute for "jerk":
+```
+jerk(x) = d/dt(x) = d/dt(h * f)
+|JERK(f)|^2 = omega^2 * |X(f)|^2
+```
+
+So the "H(f) estimate" becomes:
+```
+|H_est|^2 = |X|^2 / |JERK|^2 = |X|^2 / (omega^2 * |X|^2) = 1 / omega^2
+```
+
+Peak of `1/omega^2` is always at the lowest frequency in the search range
+(~18.75 Hz), NOT at the structural resonance. This explains why H(f) peaks landed
+near 20 Hz regardless of the true resonance (42, 60, 80 Hz).
+
+The only scenario where H(f) was competitive (25 Hz) is precisely because the
+true resonance IS near the low-frequency edge where `1/omega^2` bias aligns with
+the actual peak.
+
+### What we kept
+
+- **All Phase 2 C++ infrastructure** (dsp.h, main.cpp) — still collects and
+  exposes jerk PSD. This is useful raw data for future research/debugging.
+- **`computeTransferFunction()` function in shaper.js** — available for
+  experimental opt-in via `window._hfMode = true`.
+- **Jerk broadness metric** — exposes excitation quality to users regardless.
+
+### Lesson learned
+
+The simulation revealed that the theoretical shortcut (using output jerk as
+proxy for input) is fundamentally invalid for LTI systems. To genuinely upgrade
+from OMA to EMA, we would need one of:
+- Direct measurement of motor-commanded input (hardware change)
+- Random Decrement Technique (event-triggered averaging, pure output-only)
+- Stochastic Subspace Identification (statistical method, output-only)
+
+None of these are simple drop-in replacements; they require substantial
+architectural changes. For now, raw `X(f)` with Lorentzian refinement remains
+the best approach.
+
+---
+
+## [FEAT-SIM-01] Accuracy simulation harness `test/sim_accuracy.js`
+
+- **File**: `test/sim_accuracy.js` (~300 lines, Node.js)
+- **Type**: Test infrastructure
+- **Run**: `node test/sim_accuracy.js`
+
+### What it does
+
+Self-contained Node.js simulation that:
+1. Generates synthetic printer commanded motion (random decel events)
+2. Drives a 2nd-order mechanical system (Newmark-beta integration) with known
+   resonance frequency and damping ratio
+3. Adds sensor noise
+4. Runs Welch PSD + weighted Welch (mimics `dsp.h::dspFeedDual`)
+5. Tests multiple peak detection methods: centroid, parabolic, quad-log, Lorentzian
+6. Quantifies accuracy (mean/std error vs ground truth)
+
+### Method comparison findings
+
+| Scenario | Centroid | Parabolic | QuadLog | Lorentzian |
+|----------|----------|-----------|---------|------------|
+| f=25Hz z=0.10 | 0.651 Hz | 0.679 Hz | 0.801 Hz | 0.833 Hz |
+| f=42Hz z=0.10 | 1.147 Hz | 1.243 Hz | 1.178 Hz | **0.746 Hz** |
+| f=42Hz z=0.05 | 0.630 Hz | 0.592 Hz | 0.488 Hz | **0.462 Hz** |
+| f=42Hz z=0.20 | 2.061 Hz | 1.937 Hz | 1.954 Hz | **1.641 Hz** |
+| f=60Hz z=0.10 | 2.037 Hz | 2.195 Hz | 2.202 Hz | **1.463 Hz** |
+| f=80Hz z=0.10 | 2.962 Hz | 3.551 Hz | 3.562 Hz | **1.684 Hz** |
+| f=100Hz z=0.10 | 4.457 Hz | 4.671 Hz | 4.662 Hz | **3.664 Hz** |
+
+**Lorentzian fitting wins in 6/7 scenarios**, with biggest gains at higher
+frequencies (~1.76x better at 80 Hz).
+
+### Conclusion
+
+- Current pipeline (`filter.js::zoomPeakRefine`) already uses a Lorentzian grid
+  search - roughly equivalent to the Newton iteration in the simulation.
+- No algorithmic changes needed to the peak refinement path right now.
+- Simulation file is kept in repo for future regression testing when any DSP
+  change is proposed.
+
+### How to use
+
+```bash
+node test/sim_accuracy.js                    # run all scenarios
+# (~4 seconds on typical laptop)
+```
 
 ---
 
 *Last updated: 2026-04-22 by Claude Code (claude-sonnet-4-6)*
-*Session branch: claude/clever-lichterman-066b6f*
+*Session branch: main (direct commits per user preference)*

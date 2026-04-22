@@ -72,14 +72,16 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     const bgPsd = d.bgPsd || _bgPsdCache || null;
     if (d.bgPsd) _bgPsdCache = d.bgPsd;
 
-    // Phase 2: 전달함수 H(f) = X(f) / F(f) 계산 (jerk PSD 가용 시)
-    // OMA(출력전용) -> EMA(입력+출력) 격상
+    // Phase 2 (실험적/opt-in): 전달함수 H(f) = X(f) / F(f) 계산
+    // 시뮬레이션(test/sim_accuracy.js) 결과: 기본 사용 시 1/omega^2 편향으로
+    // 오차 악화 — 명시적 토글(window._hfMode===true)일 때만 활성화.
+    // jerk PSD 원시 데이터는 /api/psd 응답에 계속 포함 (연구/디버그용).
     let psdXForAnalysis = realPsdX;
     let psdYForAnalysis = realPsdY;
     let _hfActive = false;
-    if (typeof useHfMode !== 'undefined' && useHfMode === false) {
-      // 사용자가 H(f) 모드 비활성화 (설정 페이지 토글)
-    } else if (d.jerkX && d.jerkY && d.jerkX.length === realPsdX.length && typeof computeTransferFunction === 'function') {
+    if (typeof window !== 'undefined' && window._hfMode === true &&
+        d.jerkX && d.jerkY && d.jerkX.length === realPsdX.length &&
+        typeof computeTransferFunction === 'function') {
       const hX = computeTransferFunction(realPsdX, d.jerkX);
       const hY = computeTransferFunction(realPsdY, d.jerkY);
       if (hX && hY) {
@@ -87,7 +89,7 @@ async function fetchAndRenderPsdDual(measureMetrics) {
         psdYForAnalysis = hY;
         _hfActive = true;
         const bx = d.jerkBroadnessX || 0, by = d.jerkBroadnessY || 0;
-        appLog('logShaper', `<span class="log-ok">H</span> Transfer function H(f) active (input broadness X:${(bx*100).toFixed(0)}% Y:${(by*100).toFixed(0)}%)`);
+        appLog('logShaper', `<span class="log-ok">H</span> [EXPERIMENTAL] Transfer function H(f) active (broadness X:${(bx*100).toFixed(0)}% Y:${(by*100).toFixed(0)}%)`);
       }
     }
 
