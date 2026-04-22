@@ -1331,6 +1331,9 @@ void handleGetPsd() {
       return;
     }
     const float savedFreqRes = ((float)measSampleRate) / DSP_N;
+    const float bgFreqRes = dspFreqRes();
+    const int bgBinMin = dspBinMin();
+    const int bgBinMax = dspBinMax();
     JsonDocument doc;
     doc["ok"] = true;
     doc["mode"] = "print";
@@ -1372,10 +1375,15 @@ void handleGetPsd() {
     }
     doc["jerkBroadnessX"] = dspJerkBroadness(dspJerkPsdX);
     doc["jerkBroadnessY"] = dspJerkBroadness(dspJerkPsdY);
-    // bgPsd
+    // Serialize background PSD with its own live-rate grid metadata so the
+    // frontend can align subtraction by frequency even after sample-rate changes.
     if (dspBgSegs > 0) {
       JsonArray bg = doc["bgPsd"].to<JsonArray>();
-      for (int k = binMin; k <= binMax; k++) bg.add(dspBgPsd[k]);
+      doc["bgFreqRes"] = bgFreqRes;
+      doc["bgSampleRate"] = cfg.sampleRate;
+      doc["bgBinMin"] = bgBinMin;
+      doc["bgBinCount"] = bgBinMax - bgBinMin + 1;
+      for (int k = bgBinMin; k <= bgBinMax; k++) bg.add(dspBgPsd[k]);
     }
     sendJson(doc);
     return;
@@ -2040,17 +2048,15 @@ void loop() {
         dspDualNewSeg = false;
         if (liveSSEClient.connected()) {
           dspUpdateDual();
-          // Array reference alias to the file-scope static buffer (preserves
-          // sizeof(buf) in all the len-checks below). See _sseBuf declaration.
+          // Reuse the shared static SSE buffer while exposing bin geometry so
+          // clients can label axes correctly at any sample rate.
           char (&buf)[sizeof(_sseBuf)] = _sseBuf;
-          // fr/bm expose the bin geometry so clients can label axes correctly
-          // at any cfg.sampleRate (live chart used to hard-code 3.125Hz/bin).
-          int len = snprintf(buf, sizeof(buf),
-            "data: {\"m\":\"print\",\"sx\":%d,\"sy\":%d,\"st\":%d,\"gr\":%.2f,\"fr\":%.4f,\"bm\":%d,\"bx\":[",
-            dspDualSegCountX(), dspDualSegCountY(), dspDualSegTotal(), dspDualGateRatio(),
-            dspFreqRes(), dspBinMin());
           int binMin = dspBinMin();
           int binMax = dspBinMax();
+          const float freqRes = dspFreqRes();
+          int len = snprintf(buf, sizeof(buf),
+            "data: {\"m\":\"print\",\"sx\":%d,\"sy\":%d,\"st\":%d,\"gr\":%.2f,\"fr\":%.5f,\"bm\":%d,\"bx\":[",
+            dspDualSegCountX(), dspDualSegCountY(), dspDualSegTotal(), dspDualGateRatio(), freqRes, binMin);
           for (int k=binMin; k<=binMax && len<(int)sizeof(buf)-12; k++) {
             if (k>binMin && len<(int)sizeof(buf)-2) buf[len++]=',';
             float v = dspDualPsdX[k];
@@ -2101,16 +2107,15 @@ void loop() {
           dspUpdateDual();
           if (liveSSEClient.connected()) {
             // Reuse the shared static SSE buffer (see _sseBuf declaration and
-            // BF-R14-001). Array reference preserves sizeof() behaviour for
-            // the len-checks below.
+            // BF-R14-001) while advertising bin geometry for the dynamic
+            // frontend live chart.
             char (&buf)[sizeof(_sseBuf)] = _sseBuf;
-            // fr/bm added so clients can derive Hz-per-bin at any sampleRate.
+            const int binMin = dspBinMin();
+            const int binMax = dspBinMax();
+            const float freqRes = dspFreqRes();
             int len = snprintf(buf, sizeof(buf),
-              "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"fr\":%.4f,\"bm\":%d,\"bx\":[",
-              dspDualSegTotal(), dspDualSegTotal(),
-              dspFreqRes(), dspBinMin());
-            int binMin = dspBinMin();
-            int binMax = dspBinMax();
+              "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"fr\":%.5f,\"bm\":%d,\"bx\":[",
+              dspDualSegTotal(), dspDualSegTotal(), freqRes, binMin);
             for (int k=binMin; k<=binMax && len<(int)sizeof(buf)-12; k++) {
               if (k>binMin && len<(int)sizeof(buf)-2) buf[len++]=',';
               float v = dspDualPsdX[k];

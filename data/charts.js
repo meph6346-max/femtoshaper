@@ -128,20 +128,15 @@ let _peakHoldOn = true;
 let _liveFrameCount = 0;
 let _lastLiveStatusUpdate = 0;
 
-// Resize all live-mode PSD buffers to match the server-reported bin count.
-// Called from the SSE handler when the bin count in a frame differs from
-// the current buffer size. Safe to call every frame - a matched size is a
-// no-op.
-function ensureLiveBufSize(n) {
-  if (!Number.isFinite(n) || n <= 0) return;
-  if (typeof liveData !== 'undefined' && liveData.length !== n) {
-    liveData = new Array(n).fill(0);
-  }
-  if (liveDataY.length !== n) liveDataY = new Array(n).fill(0);
-  if (_peakHold.length !== n) _peakHold = new Array(n).fill(0);
-  if (_hitMap.length !== n)   _hitMap   = new Array(n).fill(0);
-  // Chart.js retains stale labels/datasets when array length changes, so
-  // drop the chart instance and let drawLiveFrame rebuild on the next call.
+function syncLiveChartBinCount(binCount) {
+  const nextCount = Math.max(1, parseInt(binCount || 0, 10));
+  if (!Number.isFinite(nextCount) || nextCount <= 0) return;
+  if (liveDataY.length === nextCount && _peakHold.length === nextCount && _hitMap.length === nextCount) return;
+
+  liveDataY = new Array(nextCount).fill(0);
+  _peakHold = new Array(nextCount).fill(0);
+  _hitMap = new Array(nextCount).fill(0);
+  _liveFrameCount = 0;
   if (_liveChart) {
     try { _liveChart.destroy(); } catch (e) {}
     _liveChart = null;
@@ -175,6 +170,7 @@ function destroyLiveChart() {
 function drawLiveFrame(liveData, dataY) {
   const canvas = document.getElementById('cLive');
   if (!canvas) return;
+  syncLiveChartBinCount(Array.isArray(liveData) && liveData.length > 0 ? liveData.length : liveDataY.length);
   // R19.26: NaN/Infinity - SSE Chart.js
   if (!Array.isArray(liveData)) liveData = [];
   for (let i = 0; i < liveData.length; i++) {
@@ -189,7 +185,7 @@ function drawLiveFrame(liveData, dataY) {
   //
   const maxV = Math.max(...liveData, 1);
   const threshold = maxV * 0.05;
-  for (let i=0; i<liveData.length; i++) {
+  for (let i = 0; i < liveData.length; i++) {
     // :
     if (_peakHoldOn) _peakHold[i] = Math.max(_peakHold[i] * 0.97, liveData[i]);
     // :
@@ -210,10 +206,10 @@ function drawLiveFrame(liveData, dataY) {
   // Bin geometry may be overridden per-frame via window.liveBinMin / liveFreqRes
   // (set by live.js from the SSE "bm"/"fr" fields). Defaults are the 3200Hz
   // geometry so behaviour is unchanged when the server does not send them.
-  const binMinLive  = (typeof window.liveBinMin  === 'number' && window.liveBinMin  > 0) ? window.liveBinMin  : 6;
-  const freqResLive = (typeof window.liveFreqRes === 'number' && window.liveFreqRes > 0) ? window.liveFreqRes : 3.125;
   const labels = [];
-  for (let i=0; i<liveData.length; i++) labels.push(((i+binMinLive)*freqResLive).toFixed(1));
+  const liveBinMin = (typeof window.liveBinMin === 'number' && window.liveBinMin > 0) ? window.liveBinMin : 6;
+  const liveFreqRes = (typeof window.liveFreqRes === 'number' && window.liveFreqRes > 0) ? window.liveFreqRes : 3.125;
+  for (let i = 0; i < liveData.length; i++) labels.push(((i + liveBinMin) * liveFreqRes).toFixed(1));
 
   //
   const hint = document.getElementById('liveHint');
@@ -264,11 +260,9 @@ function drawLiveFrame(liveData, dataY) {
     const st = document.getElementById('liveStatus');
     if (st) {
       // hitMap - use dynamic bin geometry (falls back to 3200Hz defaults)
-      const hmBinMin  = (typeof window.liveBinMin  === 'number' && window.liveBinMin  > 0) ? window.liveBinMin  : 6;
-      const hmFreqRes = (typeof window.liveFreqRes === 'number' && window.liveFreqRes > 0) ? window.liveFreqRes : 3.125;
       let topBins = [];
-      for (let i=0; i<_hitMap.length && i<liveData.length; i++) {
-        if (_hitMap[i] > 0.15) topBins.push({f:((i+hmBinMin)*hmFreqRes), h:_hitMap[i]});
+      for (let i = 0; i < _hitMap.length; i++) {
+        if (_hitMap[i] > 0.15) topBins.push({ f: ((i + liveBinMin) * liveFreqRes), h: _hitMap[i] });
       }
       topBins.sort((a,b) => b.h - a.h);
       if (topBins.length > 0) {

@@ -5,10 +5,20 @@
 
 let liveRunning   = false;
 let liveInterval  = null;
-const DSP_BINS = 59; // DSP_BIN_MAX - DSP_BIN_MIN + 1 (bin 6~64)
-let liveData      = new Array(DSP_BINS).fill(0);
+let liveBinCount  = 59;
+window.liveBinMin = 6;
+window.liveFreqRes = 3.125;
+let liveData      = new Array(liveBinCount).fill(0);
 let livePeakFreq  = 0;
 let liveEnergy    = 0;
+
+function resizeLiveBins(binCount) {
+  const nextCount = Math.max(1, parseInt(binCount || 0, 10));
+  if (!Number.isFinite(nextCount) || nextCount <= 0 || nextCount === liveData.length) return;
+  liveBinCount = nextCount;
+  liveData = new Array(liveBinCount).fill(0);
+  if (typeof syncLiveChartBinCount === 'function') syncLiveChartBinCount(liveBinCount);
+}
 
 
 // ADXL
@@ -80,11 +90,9 @@ function toggleLive() {
         const binsX = d.bx || d.b || [];
         const binsY = d.by || [];
         if (binsX.length > 0) {
-          // Resize buffers if the server sent a different bin count (happens
-          // on first frame after boot or a sampleRate change). Fixes the
-          // sampleRate != 3200 case where bin count is 117/233/465 but the
-          // client only retained 59, silently hiding higher-freq content.
-          if (typeof ensureLiveBufSize === 'function') ensureLiveBufSize(binsX.length);
+          if (Number.isFinite(d.bm)) window.liveBinMin = d.bm;
+          if (Number.isFinite(d.fr)) window.liveFreqRes = d.fr;
+          resizeLiveBins(Math.max(binsX.length, binsY.length || 0));
           for (let i = 0; i < binsX.length && i < liveData.length; i++) {
             liveData[i] = liveData[i] * 0.3 + binsX[i] * 0.7;
             if (liveData[i] < 0.01) liveData[i] = 0;  //

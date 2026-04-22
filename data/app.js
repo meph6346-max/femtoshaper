@@ -20,6 +20,21 @@ let psdPeakXGlobal = 0, psdPeakYGlobal = 0;  // v0.9: ??(PSD ? ? )
 
 const TAB_IDS = ['shaper', 'diag', 'live', 'settings'];
 
+function cacheBackgroundPsd(payload) {
+  if (!payload) return;
+  if (Array.isArray(payload)) {
+    _bgPsdCache = { bins: payload };
+    return;
+  }
+  if (Array.isArray(payload.bins) && payload.bins.length > 0) {
+    _bgPsdCache = {
+      bins: payload.bins,
+      freqRes: payload.freqRes || payload.bgFreqRes,
+      binMin: payload.binMin ?? payload.bgBinMin
+    };
+  }
+}
+
 function switchTab(id) {
   document.querySelectorAll('.tb .tab').forEach((tab, i) =>
     tab.classList.toggle('active', TAB_IDS[i] === id));
@@ -101,8 +116,12 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     realPsdX = d.binsX.map(b => ({ f: b.f, v: b.v, var: b.var || 0 }));
     realPsdY = d.binsY.map(b => ({ f: b.f, v: b.v, var: b.var || 0 }));
 
-    const bgPsd = d.bgPsd || _bgPsdCache || null;
-    if (d.bgPsd) _bgPsdCache = d.bgPsd;
+    const bgPsd = d.bgPsd ? {
+      bins: d.bgPsd,
+      freqRes: d.bgFreqRes || d.freqRes,
+      binMin: Number.isFinite(d.bgBinMin) ? d.bgBinMin : d.binMin
+    } : (_bgPsdCache || null);
+    if (d.bgPsd) cacheBackgroundPsd(bgPsd);
 
     // Phase 2 ( /opt-in): H(f) = X(f) / F(f)
     // (test/sim_accuracy.js) : 1/omega^2
@@ -627,7 +646,14 @@ function loadResultFromESP() {
             realPsdY = d.binsY.map((v, i) => ({f: (i + binMin) * (d.freqRes || 3.125), v: typeof v === 'number' ? v : v.v || 0}));
           }
         }
-        if (d.bgPsd && d.bgPsd.length > 0) { liveBgPsd = d.bgPsd; _bgPsdCache = d.bgPsd; }
+        if (d.bgPsd && d.bgPsd.length > 0) {
+          liveBgPsd = {
+            bins: d.bgPsd,
+            freqRes: d.bgFreqRes || d.freqRes,
+            binMin: Number.isFinite(d.bgBinMin) ? d.bgBinMin : d.binMin
+          };
+          cacheBackgroundPsd(liveBgPsd);
+        }
       } catch(e) {
         // P-07 (Codex follow-up): /api/psd fallback only returned Y-axis data,
         // leaving realPsdX as demo data. Fill X=Y as single-axis fallback and warn user.
@@ -643,7 +669,14 @@ function loadResultFromESP() {
               appLog('logShaper', `<span class="log-ok">i</span> Single-axis PSD fallback (X=Y)`);
             }
           }
-          if (yD.bgPsd && yD.bgPsd.length > 0) { liveBgPsd = yD.bgPsd; _bgPsdCache = yD.bgPsd; }
+          if (yD.bgPsd && yD.bgPsd.length > 0) {
+            liveBgPsd = {
+              bins: yD.bgPsd,
+              freqRes: yD.bgFreqRes || yD.freqRes,
+              binMin: Number.isFinite(yD.bgBinMin) ? yD.bgBinMin : yD.binMin
+            };
+            cacheBackgroundPsd(liveBgPsd);
+          }
         } catch(e2) {
           if (typeof appLog === 'function') {
             appLog('logShaper', `<span class="log-err">X</span> PSD restore failed: ${_escLog(e2.message)}`);
@@ -698,13 +731,12 @@ function initApp() {
   // Load the background PSD used for chart overlays and validation.
   function loadBgPsd(retryCount) {
     fetch('/api/noise').then(r=>r.json()).then(d=>{
-      if (d.valid && d.bins && d.bins.length > 0) {
-        _bgPsdCache = d.bins.map(b=>b.v);
+      if(d.valid && d.bins && d.bins.length>0){
+        cacheBackgroundPsd({ bins: d.bins });
       } else if (retryCount < 3) {
         // Boot-noise capture may still be in progress. Retry up to 3 times
-        // with a 3 s gap. This branch was previously an absorbed-comment
-        // bug - the setTimeout call sat inside a `//` comment and never
-        // executed, so an invalid response never retried.
+        // with a 3 s gap. This branch previously failed to retry on
+        // invalid-but-successful payloads.
         setTimeout(() => loadBgPsd(retryCount + 1), 3000);
       }
     }).catch(()=>{

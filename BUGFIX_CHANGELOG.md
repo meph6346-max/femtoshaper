@@ -759,6 +759,35 @@ to reuse on the next pass.
 
 **Running total:** 124 (before) + 4 = **128 bugs fixed**.
 
+### 2026-04-23 follow-up (Codex): variable-rate frontend alignment fixes
+
+This pass closes the remaining frontend/runtime gaps after the variable
+`sampleRate` work landed in firmware.
+
+**Fixed**
+- `src/main.cpp`
+  - `/api/psd?mode=print` now includes background-PSD grid metadata
+    (`bgFreqRes`, `bgBinMin`, `bgBinCount`, `bgSampleRate`) so restored print
+    PSD can be background-subtracted on the correct frequency axis.
+  - Live/print SSE payloads now include `fr` (frequency resolution) and `bm`
+    (bin min) for dynamic frontend labeling.
+- `data/filter.js`
+  - Background subtraction no longer assumes `3.125 Hz` bins. It now aligns
+    by frequency using either object-form PSD bins or numeric bins plus
+    metadata.
+- `data/live.js` + `data/charts.js`
+  - Live spectrum buffers now resize to the incoming SSE bin count instead of
+    assuming the legacy 59-bin layout.
+  - Live chart labels and hotspot readouts now use runtime `binMin/freqRes`
+    metadata from SSE instead of fixed `(i + 6) * 3.125`.
+- `data/app.js`
+  - Background PSD cache now preserves frequency metadata.
+  - Startup `/api/noise` retry was restored for invalid-but-successful payloads.
+
+**Verification**
+- `node --check data/*.js`
+- `git diff --check`
+
 ### 2026-04-22 follow-up (Claude): 7 more absorbed-code bugs recovered after Codex's round
 
 After Codex fixed `if (dspDualNewSeg)` and `if (liveSSEClient.connected())`
