@@ -2006,3 +2006,18 @@ link confirmed clean. NVS read-path hardened to match R24/R25 write-path
 pattern. Running total **197 bugs fixed** across rounds 1-27.
 
 ---
+
+## Round 28 — Restart-from-scratch lap 2/3 (2026-04-22)
+
+See `BUGFIX_COMMENT_ABSORB_ROUND28.md` for the per-item writeup.
+
+| # | File | Class | Summary |
+|---|---|---|---|
+| BF-R28-001 | `src/main.cpp` `handlePostConfig` | MEDIUM | `dspReset()` added alongside `dspResetDual()` on sampleRate change — single-axis accumulator was leaking stale data into handleGetPsd |
+| BF-R28-002 | `src/main.cpp` `handlePostConfig` | LOW | `liveSegReset = 0;` added — was stale after `dspResetDual()` zeroed segTotal, delaying next live SSE publish |
+
+Runtime-state-propagation pattern (R11) recurred with siblings that
+live in main.cpp rather than inside `dsp*Reset()` helpers. Running
+total **199 bugs fixed** across rounds 1-28.
+
+---

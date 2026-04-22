@@ -852,7 +852,18 @@ void handlePostConfig() {
       // leave them, any in-flight live SSE stream will report the old bin
       // values with the new fr/bm metadata attached - a silent freq-axis mix.
       dspResetDual();
-      Serial.printf("[CFG] sampleRate changed %d -> %d : measPsd/bgPsd/dual invalidated, will recapture noise\n",
+      // Single-axis accumulator (dspPsdAccum/_psdSum/_segCount/dspSegCount)
+      // was previously left untouched on rate change. handleGetPsd (default
+      // axis path) and handleMeasStatus's SNR calc both read dspPsdAccum, so
+      // without resetting it they would keep returning bin values from the
+      // old freqRes tagged with the new sampleRate's metadata.
+      dspReset();
+      // liveSegReset was NOT reset, so after dspResetDual() the next live
+      // publish gate `segNow - liveSegReset >= cfg.liveSegs` had segNow=1
+      // and a stale liveSegReset (e.g. 28), making the comparison negative
+      // and delaying the next SSE publish by up to ~28 segments.
+      liveSegReset = 0;
+      Serial.printf("[CFG] sampleRate changed %d -> %d : measPsd/bgPsd/dual/single/liveSeg invalidated, will recapture noise\n",
                     cfg.sampleRate, newSR);
       cfg.sampleRate = newSR;
       // CRITICAL: also reprogram the ADXL BW_RATE register. Without this the
