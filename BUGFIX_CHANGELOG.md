@@ -8,6 +8,47 @@
 
 ---
 
+### 2026-04-22 rounds 20-26 (Claude Opus 4.7): 3-wheel continuous pass
+
+User: "continue 3 laps, commit at each round to guard against token
+limits". Rounds 20-26 ran the chain around three times.
+
+**Wheel 1 (R19-R21) — HTML/CSS/Python audit** (+2 bugs counted in R19):
+- R20: CSS missing `.btn-suc` for calibration Save button. Added.
+
+**Wheel 2 (R22-R23) — C++ server chain re-verify** (+1 bug):
+- R22: `_adxlOverflowCount` (R33) was tracked + Serial-logged but
+  never exposed to API. Client can't surface "loop too slow"
+  warnings. Added `fifoOverflowCount` to /api/adxl/status.
+- R23: DSP/API revisit checkpoint - no new bugs; R11-R15 solid on
+  second look. Documented observations (yAn fallback aliasing,
+  stale dspPsdAccum in handleMeasStatus SNR, FIFO-post-standby, etc.).
+
+**Wheel 3 (R24-R25) — NVS error propagation** (+4 bugs):
+- R24: handleSaveResult + handleSaveDiag ignored `prefs.begin()` and
+  `putXxx` returns. Silent NVS failures returned HTTP 200 OK, fooling
+  client into thinking saves succeeded. Added begin-check + last-
+  putULong success probe; return 507 on failure. Client's 507 handler
+  now actually receives the error.
+- R25: saveBgPsdToNVS + saveMeasPsdToNVS same pattern. Not HTTP
+  handlers so failures surface via Serial log only; critical for
+  print_stop path where measurement snapshot would be silently lost.
+  saveMeasPsdToNVS now writes `valid=true` LAST so partial writes
+  don't leave valid=true on incomplete data.
+
+**Verification (R26):**
+```
+braces/parens balanced on main.cpp and dsp.h
+g++ -c -O2 -Wall -Wextra                    0 warnings
+node --check on all data/*.js + test/*.js   pass
+node test/sim_ci_validate.js                coverage within target
+```
+
+**Full write-ups:** [`BUGFIX_COMMENT_ABSORB_ROUND23.md`](./BUGFIX_COMMENT_ABSORB_ROUND23.md),
+[`BUGFIX_COMMENT_ABSORB_ROUND24-26.md`](./BUGFIX_COMMENT_ABSORB_ROUND24-26.md).
+
+**Running total after rounds 20-26:** 188 + 7 = **195 bugs fixed**.
+
 ### 2026-04-22 round 19 (Claude Opus 4.7): HTML/UI audit — wheel 1/3 of continuous chain pass
 
 R18 caught absorbed-code in JS. R19 audits HTML which was never
