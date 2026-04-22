@@ -8,6 +8,47 @@
 
 ---
 
+### 2026-04-22 round 7 (Claude Opus 4.7): dead-code removal + full comment normalisation
+
+User decided the remaining three items: remove `/api/live/axis` as dead
+code (no client caller), rewrite every `// ???????` comment in English,
+and fix the last sign-compare warning.
+
+**Fixed (3 items, 3 bug tickets):**
+
+- **Removed `/api/live/axis`**: round 6 added `liveAxis` + handler as a
+  "future hook". No caller ever materialised; `data/live.js` doesn't
+  reference it, and the SSE payload sends both `bx[]` and `by[]`
+  unconditionally. Dropped the static, the handler, and the route
+  registration.
+- **`checkBodyLimit` sign-compare cast**: added `(size_t)` cast to
+  silence `[-Wsign-compare]` in the one remaining spot where it fired.
+- **131 Korean `// ???????` comments rewritten in English**: every
+  comment in `src/main.cpp` that had lost its UTF-8 encoding to
+  literal `?` characters was replaced with an English explanation
+  inferred from the code it documents. R-tags (e.g. `R1.1`, `R20.32`)
+  preserved so the decision-trail references in earlier changelog
+  entries still line up.
+
+**Verification:**
+```
+braces 265/265 [+0], parens 1455/1455 [+0]  OK       (main.cpp)
+braces 102/102 [+0], parens  307/307 [+0]  OK        (dsp.h)
+g++ -fsyntax-only -Wall -Wextra -I/tmp/stubs src/main.cpp  # 0 warnings
+g++ -c -O2 -Wall -Wextra ...                               # 0 errors,
+    # 1 residual -Wunused-function for adxlLatest (pre-existing)
+node --check + sim_*.js                                    # all pass
+main.cpp literal '?' count: 3177 -> 46  (remaining are ternary
+                                         operators + format specifiers)
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND7.md`](./BUGFIX_COMMENT_ABSORB_ROUND7.md)
+with the full before/after table and a short "genuinely out of scope"
+list (`adxlLatest` unused, intentional UI emoji in `data/*.js`, Korean
+research notes in `test/*.js`).
+
+**Running total:** 140 (before) + 3 = **143 bugs fixed**.
+
 ### 2026-04-22 round 6 (Claude Opus 4.7): finish-line pass — axis params + log cleanup
 
 Round 5 left three items flagged "suspicious but unchanged — needs design

@@ -1,18 +1,19 @@
 // ============================================================
-// FEMTO SHAPER ESP32-C3 Firmware v0.8
-// ? ? ?????? ?? ? ?
-// 1. CS pinMode??SPI.begin() ??? ?????? (?? ?? ??? ?)
-// 2. FIFO bypass?? ?ream ?? ????? ???? ?
-// 3. GPIO0 INT1: INPUT_PULLUP ??? ??(?? ?? ? ??? ??
-// 4. adxl_test.js ?? ???? ?
-// 5. ?? ?? ?handleSaveBelt/LoadBelt ?????// 6. adxlFifoReady ISR???? ???? ??(? ?????? ???? ?
-// 7. INT_SOURCE ????????ISR ? ?//
-// ? ???? ? ?(?? ??:
-//   SCL ??GPIO4 (SCK/MISO)
-//   SDO ??GPIO2 (MISO)
-//   SDA ??GPIO3 (MOSI)
-//   CS  ??GPIO1
-//   INT1??GPIO0
+// FEMTO SHAPER ESP32-C3 Firmware
+// Key design notes:
+// 1. CS pinMode set before SPI.begin() (ordering matters for reliability)
+// 2. FIFO in stream mode, not bypass (drops fewer samples at high rates)
+// 3. GPIO0 INT1: INPUT_PULLUP on the pin, rising-edge ISR
+// 4. adxl_test.js removed (diagnostic helper no longer shipped)
+// 5. Dropped handleSaveBelt/LoadBelt (belt-tension feature retired)
+// 6. adxlFifoReady ISR flag is polled from loop() (keeps ISR tiny)
+// 7. INT_SOURCE register is cleared inside the ISR
+// Pin mapping (ADXL345):
+//   SCL -> GPIO4 (SCK)
+//   SDO -> GPIO2 (MISO)
+//   SDA -> GPIO3 (MOSI)
+//   CS  -> GPIO1
+//   INT1 -> GPIO0
 // ============================================================
 
 #include <Arduino.h>
@@ -34,8 +35,8 @@ const IPAddress AP_IP(192, 168, 4, 1);
 
 WebServer   server(80);
 
-// v0.9: String ?? ?????? ?? JSON ??? ? ?? ? ???(????????? ?)
-static char _jbuf[8192];  // v1.0: ????PSD (binsX+binsY+bgPsd) ~6.2KB
+// Reusable JSON serialisation buffer (avoids heap churn on every response).
+static char _jbuf[8192];  // v1.0: sized for full PSD (binsX+binsY+bgPsd, ~6.2KB)
 inline void sendJson(JsonDocument& doc) {
   // R32: measureJson() predicts length before serializing to prevent truncation
   size_t need = measureJson(doc);
@@ -55,7 +56,7 @@ inline void sendJson(JsonDocument& doc) {
 // R25: POST body size limit (DoS prevention). All handlePost* handlers call this.
 static bool checkBodyLimit(size_t maxBytes = 8192) {
   if (!server.hasArg("plain")) return false;
-  if (server.arg("plain").length() > maxBytes) {
+  if ((size_t)server.arg("plain").length() > maxBytes) {
     server.send(413, "application/json", "{\"ok\":false,\"error\":\"body_too_large\"}");
     return false;
   }
@@ -64,7 +65,7 @@ static bool checkBodyLimit(size_t maxBytes = 8192) {
 DNSServer   dnsServer;
 Preferences prefs;
 
-// ???? Config (?? ???? ? ????? ?????????? ????????????????????????????
+// ============ Config (persisted in NVS, loaded at boot) ============
 struct Config {
   int    buildX = 120, buildY = 120, accel = 3000, feedrate = 200, sampleRate = 3200;
   char kin[16] = "corexy"; char axesMap[8] = "xyz"; char firmware[20] = "marlin_is";
@@ -76,21 +77,22 @@ struct Config {
   int    pinSCK = 9, pinMISO = 1, pinMOSI = 0, pinCS = 4, pinINT1 = 3, pinLED = 8, pinReset = 10;
   int    txPower = 8;
   int    minSegs = 256;
-  // v0.9: ?? ???? ? ?????? ???? ? ? ??(? ? ?? ?????
+  // Calibration weights: project raw ADXL axes onto the printer's X/Y
+  // motion axes.
   // printerX = calWx[0]*ax + calWx[1]*ay + calWx[2]*az
-  float  calWx[3] = {1, 0, 0};  // ?? ??? ADXL X ???? ??X
-  float  calWy[3] = {0, 1, 0};  // ?? ??? ADXL Y ???? ??Y
+  float  calWx[3] = {1, 0, 0};  // default: ADXL X == printer X
+  float  calWy[3] = {0, 1, 0};  // default: ADXL Y == printer Y
   bool   useCalWeights = false;
-  // v0.9: WiFi STA ? ???
+  // WiFi STA credentials (used when wifiMode == "sta").
   char wifiMode[8] = "ap";
   char staSSID[33] = "";
   char staPass[65] = "";
-  char hostname[32] = "femto";  // v1.0: mDNS ? ? ? ? ?(hostname.local)
-  int    powerHz  = 60;  // ?? ???? ????(60/50/0)
-  int    liveSegs = 2;   // ?? ???SSE ?? ??? ?? ?(? ?? ???
+  char hostname[32] = "femto";  // mDNS name (resolves as <hostname>.local)
+  int    powerHz  = 60;  // mains notch filter frequency (60/50/0 = off)
+  int    liveSegs = 2;   // live-mode SSE segment interval before publishing
 } cfg;
 
-// ???? LED (Active Low, GPIO8 = BUILTIN LED) ??????????????????????
+// ============ LED (Active Low, GPIO8 = BUILTIN LED) ============
 #define LED_PIN 8
 enum LedState { LED_OFF, LED_ON, LED_BLINK };
 LedState      ledState    = LED_OFF;
@@ -111,18 +113,18 @@ void updateLed() {
   }
 }
 
-// ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?
-// ADXL345 ?? ??????
-// ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?
+// ============================================================
+// ADXL345 driver
+// ============================================================
 
-// ???? ? ????? ? ? ?????????????????????????????????????????????????????????????????????????
-#define ADXL_SCK   4   // GPIO4 = SCK  (SCL??
-#define ADXL_MISO  2   // GPIO2 = MISO (SDO??
-#define ADXL_MOSI  3   // GPIO3 = MOSI (SDA??
+// ============ SPI pin defines ============
+#define ADXL_SCK   4   // GPIO4 = SCK  (labelled SCL on module)
+#define ADXL_MISO  2   // GPIO2 = MISO (labelled SDO on module)
+#define ADXL_MOSI  3   // GPIO3 = MOSI (labelled SDA on module)
 #define ADXL_CS    1   // GPIO1 = CS
-#define ADXL_INT1  0   // GPIO0 = INT1 (RISING ?????
+#define ADXL_INT1  0   // GPIO0 = INT1 (rising-edge interrupt)
 
-// ???? ?????? ?? ???????????????????????????????????????????????????????????????????????????
+// ============ ADXL345 register addresses ============
 #define REG_DEVID       0x00
 #define REG_BW_RATE     0x2C
 #define REG_POWER_CTL   0x2D
@@ -137,10 +139,10 @@ void updateLed() {
 #define SPI_READ  0x80
 #define SPI_MULTI 0x40
 
-// ???? ??? ? ????? ??? ???????????????????????????????????????????????????????????????????????????
+// ============ Sample record ============
 struct AdxlSample { int16_t x, y, z; };
 
-// ???? ??? ??? ?????????????????????????????????????????????????????????????????????????????????
+// ============ ADXL driver state ============
 static bool    adxlOK    = false;
 static bool    bootNoiseDone = false;
 static int     bootNoiseSamples = 0;
@@ -151,19 +153,19 @@ static AdxlSample adxlBuf[ADXL_BUF_SIZE];
 static uint8_t    adxlHead  = 0;
 static uint8_t    adxlCount = 0;
 
-static volatile bool adxlFifoReady = false;  // ISR???? ???? ??
-// ??? ? ??? ?? ? ??
+static volatile bool adxlFifoReady = false;  // set by ISR, polled by loop
+// Sample-rate measurement helpers
 static uint32_t adxlRateSamples   = 0;
 static uint32_t adxlRateStart     = 0;
 static float    adxlRateHz        = 0.0f;
 static bool     adxlRateMeasuring = false;
 
-// ???? ISR ????????????????????????????????????????????????????????????????????????????????????????????
+// ============ ISR ============
 void IRAM_ATTR adxlISR() {
   adxlFifoReady = true;
 }
 
-// ???? SPI R/W ??????????????????????????????????????????????????????????????????????????????????
+// ============ SPI read/write helpers ============
 static uint8_t spiRead(uint8_t reg) {
   digitalWrite(cfg.pinCS, LOW);
   SPI.transfer(reg | SPI_READ);
@@ -190,12 +192,12 @@ static void spiReadXYZ(int16_t &x, int16_t &y, int16_t &z) {
   z = (int16_t)((b[5] << 8) | b[4]);
 }
 
-// ???? ? ? ??????????????????????????????????????????????????????????????????????????????????????
+// ============ ADXL init ============
 bool adxlInit() {
-  Serial.printf("[ADXL] ??: SCK=%d MISO=%d MOSI=%d CS=%d INT1=%d\n",
+  Serial.printf("[ADXL] pins: SCK=%d MISO=%d MOSI=%d CS=%d INT1=%d\n",
     cfg.pinSCK, cfg.pinMISO, cfg.pinMOSI, cfg.pinCS, cfg.pinINT1);
 
-  // CS??? ?? HIGH??(SPI ????????? ??
+  // CS must be HIGH before SPI.begin() (idle state)
   pinMode(cfg.pinCS, OUTPUT);
   digitalWrite(cfg.pinCS, HIGH);
   delay(10);
@@ -205,15 +207,15 @@ bool adxlInit() {
   SPI.begin(cfg.pinSCK, cfg.pinMISO, cfg.pinMOSI, -1);
   SPI.setFrequency(1000000);  // start at 1 MHz (safe for detection); boosted later
   SPI.setDataMode(SPI_MODE3);
-  delay(50);  // SPI ??? ??????
-  // INT1 ?? ???
+  delay(50);  // let SPI settle
+  // Configure INT1 pin
   pinMode(cfg.pinINT1, INPUT_PULLUP);
   delay(10);
 
   // DevID read - retry up to 3 times
   adxlDevId = 0;
   for (int attempt = 1; attempt <= 3; attempt++) {
-    // CS ?????ADXL345 SPI ??? ??? ??
+    // Toggle CS to put the ADXL345 into a known SPI state
     digitalWrite(cfg.pinCS, HIGH);
     delay(5);
     digitalWrite(cfg.pinCS, LOW);
@@ -236,20 +238,20 @@ bool adxlInit() {
     return false;
   }
 
-  // SPI ???? ??5MHz??????(? ? ???? ????? )
+  // Boost SPI to 5 MHz after initial detection (stable at 3200 Hz)
   SPI.setFrequency(5000000);
 
   spiWrite(REG_POWER_CTL, 0x00);  // Standby
   delay(5);
 
-  // BW_RATE: Settings sampleRate ??ADXL BW_RATE ?????? ??? ?
-  uint8_t bwRate = 0x0F; // ?? ???3200Hz
+  // BW_RATE: derive ADXL BW_RATE register value from cfg.sampleRate
+  uint8_t bwRate = 0x0F; // default: 3200Hz
   if      (cfg.sampleRate <= 400)  bwRate = 0x0C;
   else if (cfg.sampleRate <= 800)  bwRate = 0x0D;
   else if (cfg.sampleRate <= 1600) bwRate = 0x0E;
   else                             bwRate = 0x0F;
   spiWrite(REG_BW_RATE, bwRate);
-  // R66: ? ??readback ?(SPI ??? ?? ? ?)
+  // R66: verify BW_RATE via readback (detects SPI glitch/miswire)
   {
     uint8_t vr = spiRead(REG_BW_RATE);
     if (vr != bwRate) {
@@ -258,15 +260,15 @@ bool adxlInit() {
     }
   }
   Serial.printf("[ADXL] BW_RATE=0x%02X (%dHz) verified\n", bwRate, cfg.sampleRate);
-  spiWrite(REG_DATA_FORMAT, 0x08);  // Full Res, ?g
+  spiWrite(REG_DATA_FORMAT, 0x08);  // Full Res, +/-16g
 
-  // FIFO: bypass ??stream (? ??
+  // FIFO: switch from bypass to stream mode
   spiWrite(REG_FIFO_CTL, 0x00);  // bypass
   delay(1);
   spiWrite(REG_FIFO_CTL, 0x99);  // Stream + WM=25
 
-  spiWrite(REG_INT_MAP,    0x00);  // ? ? ?INT1
-  spiWrite(REG_INT_ENABLE, 0x02);  // ??? ? ?? ?? ??? ????
+  spiWrite(REG_INT_MAP,    0x00);  // route all interrupts to INT1
+  spiWrite(REG_INT_ENABLE, 0x02);  // enable watermark (WM) interrupt
   // Clear pending INT_SOURCE before attaching ISR (avoids spurious first trigger)
   spiRead(REG_INT_SOURCE);
 
@@ -289,7 +291,7 @@ static uint32_t _adxlOverflowCount = 0;
 
 static void adxlDrainFifo() {
   uint8_t rawStatus = spiRead(REG_FIFO_STATUS);
-  // R33: ADXL345 FIFO_STATUS bit 7 = overflow ?? - loop() ?? ?
+  // R33: FIFO_STATUS bit 7 = overflow flag - checked from loop()
   if (rawStatus & 0x80) {
     _adxlOverflowCount++;
     if ((_adxlOverflowCount % 10) == 1) {
@@ -312,8 +314,8 @@ static void adxlDrainFifo() {
 }
 
 static void adxlUpdate() {
-  // GPIO0 ISR ?? ???????? FIFO STATUS ?????? ??????? ?
-  // ISR????? ? ?? ????? ???? ? ???? ?????? ??? ???????
+  // GPIO0 ISR fires on watermark; we drain the FIFO in the main loop
+  // Keeping ISR body minimal avoids stalling higher-priority tasks
   if (adxlFifoReady) {
     adxlFifoReady = false;
     adxlDrainFifo();
@@ -335,11 +337,11 @@ static AdxlSample adxlLatest() {
   return adxlBuf[(adxlHead + adxlCount - 1) % ADXL_BUF_SIZE];
 }
 
-// ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?
-// ADXL API
-// ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?
+// ============================================================
+// ADXL / DSP HTTP API
+// ============================================================
 
-// ???? ?? ? ???? API ????????????????????????????????????????????????????????????????????????
+// Debug/read endpoint: dump DSP tuning + current state.
 void handleDebugGet() {
   JsonDocument doc;
   doc["minValidSegs"] = dspMinValidSegs;
@@ -390,7 +392,7 @@ void handleAdxlRaw() {
     doc["ok"] = false; doc["error"] = "ADXL not initialized";
     sendJson(doc); return;
   }
-  // ISR ??? ?? SPI????? ???? ? ??XYZ ?? ?
+  // Read X/Y/Z via SPI one-shot (for ISR-free poll mode)
   int16_t rx, ry, rz;
   spiReadXYZ(rx, ry, rz);
   float ax = toMs2(rx), ay = toMs2(ry), az = toMs2(rz);
@@ -441,7 +443,6 @@ void handleAdxlFifo() {
   sendJson(doc);
 }
 
-// ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?
 // =============================================================
 // Config load/save
 // =============================================================
@@ -455,13 +456,13 @@ void loadConfig() {
     prefs.end();
     firstBoot = true;
     Serial.println("[NVS] first-boot: no saved config, writing defaults");
-    saveConfig();  // ?? ??? ??? ??NVS ?? ??
+    saveConfig();  // persist default config so the next boot is clean
   } else {
     prefs.end();
   }
 
-  // ? ? ?? ?? ? ?
-  // R1.1: read-phase begin() ?? ??defaults ? ? (cfg ?? ?? ?
+  // Read-phase open. If this fails we keep the in-memory defaults.
+  // R1.1: fall through to defaults on failure rather than blocking boot
   if (!prefs.begin("femto", false)) {
     Serial.println("[NVS] ERROR: cannot open 'femto' for reading - using defaults");
     dspMinValidSegs = cfg.minSegs;
@@ -475,7 +476,7 @@ void loadConfig() {
   cfg.sampleRate = prefs.getInt("sampleRate",cfg.sampleRate);
   prefs.getString("kin", cfg.kin, sizeof(cfg.kin));
   prefs.getString("axesMap", cfg.axesMap, sizeof(cfg.axesMap));
-  // v0.9: ???? ? ?????? ???? ? ? ??? ?? ? ?
+  // Calibration weights from NVS (projects ADXL axes onto printer axes)
   cfg.useCalWeights = prefs.getBool("useCal", false);
   cfg.calWx[0] = prefs.getFloat("cwx0", 1); cfg.calWx[1] = prefs.getFloat("cwx1", 0); cfg.calWx[2] = prefs.getFloat("cwx2", 0);
   cfg.calWy[0] = prefs.getFloat("cwy0", 0); cfg.calWy[1] = prefs.getFloat("cwy1", 1); cfg.calWy[2] = prefs.getFloat("cwy2", 0);
@@ -509,7 +510,7 @@ void loadConfig() {
   dspMinValidSegs = cfg.minSegs;
   dspSetSampleRate((float)cfg.sampleRate);
 
-  // R71: Config ? ?? ?(NVS ? ? /bit-flip ??defaults ??
+  // R71: sanity-check config fields (guards against NVS bit-flips)
   auto isValidKin = [](const char* k) {
     return strcmp(k, "corexy") == 0 || strcmp(k, "cartesian") == 0 ||
            strcmp(k, "delta") == 0 || strcmp(k, "scara") == 0;
@@ -526,7 +527,7 @@ void loadConfig() {
     Serial.printf("[CFG] Invalid firmware '%s' - reset to marlin_is\n", cfg.firmware);
     strncpy(cfg.firmware, "marlin_is", sizeof(cfg.firmware)-1);
   }
-  // ?? ?? ?(?? POST??constrain??? ?NVS ??? ???????
+  // Range clamp (mirrors the POST handler so NVS bit-flips are caught)
   cfg.buildX   = constrain(cfg.buildX, 30, 1000);
   cfg.buildY   = constrain(cfg.buildY, 30, 1000);
   cfg.accel    = constrain(cfg.accel, 100, 50000);
@@ -534,14 +535,15 @@ void loadConfig() {
   cfg.sampleRate = constrain(cfg.sampleRate, 400, 3200);
   cfg.minSegs  = constrain(cfg.minSegs, 10, 500);
 
-  // R5.1/R18.24: ? ? ?? ?? ? ? ?? ?[1,0,0]/[0,1,0]?? ?? ? ?useCalWeights=false
+  // R5.1/R18.24: if calibration vectors are still the identity default,
+  // force useCalWeights=false so we do not pretend we are calibrated
   bool isDefaultCal = (cfg.calWx[0] == 1.0f && cfg.calWx[1] == 0.0f && cfg.calWx[2] == 0.0f &&
                        cfg.calWy[0] == 0.0f && cfg.calWy[1] == 1.0f && cfg.calWy[2] == 0.0f);
   if (cfg.useCalWeights && isDefaultCal) {
     cfg.useCalWeights = false;
     Serial.println("[CFG] useCalWeights=true with default vectors - forced to false");
   }
-  // R42: Cal ??? ? ? ??(??????? ?? ???? ? ?magnitude 1.0??? ???? )
+  // R42: renormalise calibration vectors if their magnitude drifted from 1.0
   if (cfg.useCalWeights) {
     float magX = sqrtf(cfg.calWx[0]*cfg.calWx[0] + cfg.calWx[1]*cfg.calWx[1] + cfg.calWx[2]*cfg.calWx[2]);
     float magY = sqrtf(cfg.calWy[0]*cfg.calWy[0] + cfg.calWy[1]*cfg.calWy[1] + cfg.calWy[2]*cfg.calWy[2]);
@@ -553,7 +555,7 @@ void loadConfig() {
       for (int i = 0; i < 3; i++) cfg.calWy[i] /= magY;
       Serial.printf("[CFG] calWy renormalized (was mag=%.4f)\n", magY);
     }
-    // ?? ? ??? ??magnitude ?? ?? useCalWeights ?? ??
+    // Zero-magnitude or NaN vector means the calibration is unusable
     if (magX < 1e-6f || magY < 1e-6f || !isfinite(magX) || !isfinite(magY)) {
       cfg.useCalWeights = false;
       Serial.println("[CFG] calWx/calWy invalid - useCalWeights disabled");
@@ -566,8 +568,8 @@ void loadConfig() {
     cfg.buildX, cfg.buildY, cfg.accel, cfg.scv, cfg.firmware);
 }
 
-// R4.2: NVS ? ?? ? - ? ?putInt ? ?? ? (0 = ?? )
-// ? ? true = ? , false = NVS ??/??
+// R4.2: Persist config to NVS. Returns true on success, false on NVS error.
+// The final putInt() return value tells us whether any bytes were written.
 bool saveConfig() {
   if (!prefs.begin("femto", false)) return false;
   prefs.putInt("buildX",     cfg.buildX);
@@ -600,7 +602,7 @@ bool saveConfig() {
   prefs.putString("staPass",  cfg.staPass);
   prefs.putString("hostname", cfg.hostname);
   prefs.putInt("powerHz",     cfg.powerHz);
-  // R4.2: liveSegs ? ? ?NVS ?? ? ? (0 = ?? /??)
+  // R4.2: use the liveSegs putInt() return as the success probe (0 = failure)
   size_t lastWrite = prefs.putInt("liveSegs", cfg.liveSegs);
   prefs.end();
   return lastWrite > 0;
@@ -657,7 +659,7 @@ static WiFiClient liveSSEClient;
 static bool  liveMode = false;
 static int   liveSegReset = 0;
 
-// v1.0: ? ???(????DSP????? ????????
+// v1.0: Peak tracking (dual-axis DSP, live-mode snapshot)
 static float peakFreqX = 0.0f, peakFreqY = 0.0f;
 static float peakPowerX = 0.0f, peakPowerY = 0.0f;
 static int   segCountX = 0, segCountY = 0;
@@ -666,7 +668,7 @@ static int   segCountX = 0, segCountY = 0;
 #define MEAS_MAX_BINS DSP_NBINS
 static float measPsdX[MEAS_MAX_BINS], measPsdY[MEAS_MAX_BINS];
 static float measVarX[MEAS_MAX_BINS], measVarY[MEAS_MAX_BINS];
-// Phase 2: Jerk PSD ?? ??(?? ?? ? )
+// Phase 2: Jerk PSD arrays (derivative spectrum, saved at print-stop)
 static float measJerkX[MEAS_MAX_BINS], measJerkY[MEAS_MAX_BINS];
 static int   measSampleRate = (int)DSP_FS_DEFAULT;
 static int   measBinMin = 0;
@@ -678,7 +680,8 @@ void handlePostConfig() {
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
 
-  // R20.32: ?? ??sampleRate ??DSP ??? ? ? ??(FFT ???? ??? ? ??
+  // R20.32: block sampleRate changes during an active measurement
+  // (FFT sizing assumes a fixed rate for the duration of the run)
   if (measState == MEAS_PRINT) {
     if (doc["sampleRate"].is<int>() && doc["sampleRate"].as<int>() != cfg.sampleRate) {
       server.send(409, "application/json",
@@ -692,18 +695,20 @@ void handlePostConfig() {
     }
   }
 
-  // R60.1/2/3: ?? ? ?? ?(??? /0/? ?? ? ?)
+  // R60.1/2/3: reject obviously bad values (negative / zero / out-of-range)
   if (doc["buildX"].is<int>())      cfg.buildX     = constrain(doc["buildX"].as<int>(), 30, 1000);
   if (doc["buildY"].is<int>())      cfg.buildY     = constrain(doc["buildY"].as<int>(), 30, 1000);
   if (doc["accel"].is<int>())       cfg.accel      = constrain(doc["accel"].as<int>(), 100, 50000);
   if (doc["feedrate"].is<int>())    cfg.feedrate   = constrain(doc["feedrate"].as<int>(), 10, 1000);
-  // P-05/P-06 (Codex follow-up): sampleRate ??? ? ???????-rate ? ??? ??? // - measPsd ( ?rate?? ?? rate ? ? ? ?)
-  // - dspBgPsd (bin ? ? ?? ?? ? ?? ?- ??bg???? ?? ??? ?? ??
-  // - dspBgEnergy (sweep threshold ? ?
+  // P-05/P-06 (Codex follow-up): when sampleRate changes we must wipe
+  // rate-dependent caches, or their bin frequencies will be wrong:
+  //   - measPsd (frequency axis scales with rate)
+  //   - dspBgPsd (bin count and frequency mapping change with rate)
+  //   - dspBgEnergy (sweep threshold derives from background energy)
   if (doc["sampleRate"].is<int>()) {
     int newSR = constrain(doc["sampleRate"].as<int>(), 400, 3200);
     if (newSR != cfg.sampleRate) {
-      // ? rate ??? ?? ???
+      // New sample rate: invalidate all rate-dependent buffers
       measPsdValid = false;
       measSampleRate = newSR;
       measBinMin = 0;
@@ -717,7 +722,7 @@ void handlePostConfig() {
       memset(dspBgPsd, 0, sizeof(dspBgPsd));
       dspBgSegs = 0;
       dspBgEnergy = 0;
-      bootNoiseDone = false;   // ?? ??? ??? ???
+      bootNoiseDone = false;   // re-capture boot noise for the new rate
       bootNoiseSamples = 0;
       Serial.printf("[CFG] sampleRate changed %d -> %d : measPsd/bgPsd invalidated, will recapture noise\n",
                     cfg.sampleRate, newSR);
@@ -726,7 +731,7 @@ void handlePostConfig() {
   }
   if (doc["kin"].is<const char*>()) strncpy(cfg.kin, doc["kin"] | "corexy", sizeof(cfg.kin)-1);
   if (doc["axesMap"].is<const char*>()) strncpy(cfg.axesMap, doc["axesMap"] | "xyz", sizeof(cfg.axesMap)-1);
-  // v0.9: ???? ? ?????? ???? ? ? ??(JS ????? ? ???? ?
+  // Calibration weights accepted from JS (expected as 3-float JSON arrays)
   if (doc["calWx"].is<JsonArray>() && doc["calWx"].size() == 3) {
     cfg.calWx[0] = doc["calWx"][0]; cfg.calWx[1] = doc["calWx"][1]; cfg.calWx[2] = doc["calWx"][2];
     cfg.calWy[0] = doc["calWy"][0]; cfg.calWy[1] = doc["calWy"][1]; cfg.calWy[2] = doc["calWy"][2];
@@ -748,7 +753,7 @@ void handlePostConfig() {
   int newINT1= doc["pinINT1"].is<int>()  ? doc["pinINT1"].as<int>()  : cfg.pinINT1;
   int newLED = doc["pinLED"].is<int>()   ? doc["pinLED"].as<int>()   : cfg.pinLED;
   int newRst = doc["pinReset"].is<int>() ? doc["pinReset"].as<int>() : cfg.pinReset;
-  // ??????? ???????(ADXL SPI ??? ? ?)
+  // Reload GPIO pin assignments (ADXL SPI may need re-init)
   int pins[7] = { newSCK, newMISO, newMOSI, newCS, newINT1, newLED, newRst };
   bool pinConflict = false;
   for (int i = 0; i < 7; i++)
@@ -764,14 +769,14 @@ void handlePostConfig() {
   if (doc["txPower"].is<int>())  cfg.txPower  = doc["txPower"];
   if (doc["minSegs"].is<int>()) {
     cfg.minSegs = constrain(doc["minSegs"].as<int>(), 10, 500);
-    dspMinValidSegs = cfg.minSegs;  // DSP ?? ??? ??? ???
+    dspMinValidSegs = cfg.minSegs;  // keep DSP validity threshold in sync
   }
   if (doc["wifiMode"].is<const char*>()) strncpy(cfg.wifiMode, doc["wifiMode"] | "ap", sizeof(cfg.wifiMode)-1);
   if (doc["staSSID"].is<const char*>()) strncpy(cfg.staSSID, doc["staSSID"] | "", sizeof(cfg.staSSID)-1);
   if (doc["staPass"].is<const char*>()) strncpy(cfg.staPass, doc["staPass"] | "", sizeof(cfg.staPass)-1);
   if (doc["hostname"].is<const char*>()) {
     strncpy(cfg.hostname, doc["hostname"] | "femto", sizeof(cfg.hostname)-1);
-    // ? ? ? ? ???? ??? ??? ?????? ????? , ? ?????? ?
+    // Hostname must be a valid DNS label; strip/replace as needed
     for (int i=0; cfg.hostname[i]; i++) {
       char c = cfg.hostname[i];
       if (!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-')) cfg.hostname[i] = '-';
@@ -786,7 +791,7 @@ void handlePostConfig() {
     if (cfg.liveSegs > 10) cfg.liveSegs = 10;
   }
   dspSetSampleRate((float)cfg.sampleRate);
-  // R4.2/R20.33: NVS ? ?? (??) ???? ??? ? ???? ? ?
+  // R4.2/R20.33: report NVS write status so the client knows if it succeeded
   if (!saveConfig()) {
     server.send(507, "application/json",
       "{\"ok\":false,\"error\":\"nvs_full\",\"hint\":\"POST /api/reset?all=1 to factory reset\"}");
@@ -799,7 +804,7 @@ static inline int currentPsdBinCount() {
   return dspBinMax() - dspBinMin() + 1;
 }
 
-// ???? ??? PSD NVS ??? (?????? ????
+// Background PSD persistence (NVS-backed, blob-encoded)
 void loadBgPsdFromNVS() {
   prefs.begin("femto_bg", true);  // read-only
   if (prefs.getBool("valid", false)) {
@@ -837,7 +842,7 @@ void loadBgPsdFromNVS() {
   prefs.end();
 }
 
-// bgPsd??NVS??blob??? ????
+// Save bgPsd to NVS as a single blob (no per-bin keys)
 void saveBgPsdToNVS() {
   const int binMin = dspBinMin();
   const int binCount = currentPsdBinCount();
@@ -856,7 +861,7 @@ void saveBgPsdToNVS() {
   Serial.printf("[NVS] bgPsd saved (%d bins)\n", binCount);
 }
 
-// ???? ? ?? ?PSD API ????
+// Get accumulated background PSD (with variance)
 void handleGetNoise() {
   JsonDocument doc;
   float freqRes = dspFreqRes();
@@ -1051,7 +1056,7 @@ void loadMeasPsdFromNVS() {
       prefs.getBytes("vy", measVarY, vyLen);
       Serial.println("[NVS] measPsd restored (legacy 59 bins)");
     } else {
-      // R10.1: valid=false????? ?? ???? ???- ?? ?? ??? ? ?? ? ? ? ?
+      // R10.1: treat valid=false as "no data" - clear the arrays to be safe
       measPsdValid = false;
       measSampleRate = (int)DSP_FS_DEFAULT;
       measBinMin = 0;
@@ -1068,14 +1073,18 @@ void loadMeasPsdFromNVS() {
   prefs.end();
 }
 
-// ???? GET /api/psd ??PSD ??? ????+ ??? ? ???????????????????????????
-// axis ???? ? ? ?? ?axis=x ??X ??? ?? ?axis=y ???? ??PSD
-// [Round 3] MEAS_DONE ?? ? ?? ????? ???( ? ??? ?? ?????FIFO ??????? ???
+// ============ GET /api/psd ============
+// axis query parameter selects source:
+//   axis=x   -> dspDualPsdX
+//   axis=y   -> dspDualPsdY
+//   (default) -> accumulated single-axis PSD (with per-bin variance)
+// [Round 3] In MEAS_DONE mode we return the stored snapshot rather than
+// the live accumulator, so the client sees a stable post-print result.
 void handleGetPsd() {
   const float freqRes = dspFreqRes();
   const int binMin = dspBinMin();
   const int binMax = dspBinMax();
-  // v1.0: Print Measure ? ?????? ?? ?PSD ? ???(?? ?????? ? ?)
+  // v1.0: Print-Measure mode returns the snapshot saved at print_stop
   if (server.hasArg("mode") && strcmp(server.arg("mode").c_str(),"print")==0) {
     if (!measPsdValid) {
       server.send(200, "application/json", "{\"ok\":false,\"err\":\"no measurement data\"}");
@@ -1089,7 +1098,7 @@ void handleGetPsd() {
     doc["sampleRate"] = measSampleRate;
     doc["binMin"] = measBinMin;
     doc["binCount"] = measBinCount;
-    // X bins (???)
+    // X-axis bins
     JsonArray bx = doc["binsX"].to<JsonArray>();
     for (int i = 0; i < measBinCount; i++) {
       JsonObject b = bx.add<JsonObject>();
@@ -1097,7 +1106,7 @@ void handleGetPsd() {
       b["v"] = measPsdX[i];
       b["var"] = measVarX[i];
     }
-    // Y bins (???)
+    // Y-axis bins
     JsonArray by = doc["binsY"].to<JsonArray>();
     for (int i = 0; i < measBinCount; i++) {
       JsonObject b = by.add<JsonObject>();
@@ -1105,7 +1114,7 @@ void handleGetPsd() {
       b["v"] = measPsdY[i];
       b["var"] = measVarY[i];
     }
-    // Phase 2: Jerk PSD (?? ?? ? F(f))
+    // Phase 2: jerk PSD (derivative spectrum, F(f))
     JsonArray jx = doc["jerkX"].to<JsonArray>();
     JsonArray jy = doc["jerkY"].to<JsonArray>();
     for (int i = 0; i < measBinCount; i++) {
@@ -1162,7 +1171,7 @@ void handleGetPsd() {
       b["var"] = dspPsdVar[k];
     }
   }
-  // peaks[] ??dsp.h dspFindPeaks() ? ??? ?????(diagnostic.js Stage 2 ????
+  // peaks[] comes from dsp.h dspFindPeaks() (consumed by diagnostic.js Stage 2)
   JsonArray peaksArr = doc["peaks"].to<JsonArray>();
   for (int i = 0; i < st.peakCount; i++) {
     JsonObject pk = peaksArr.add<JsonObject>();
@@ -1170,7 +1179,7 @@ void handleGetPsd() {
     pk["v"]    = st.peaks[i].power;
     pk["prom"] = st.peaks[i].prominence;
   }
-  // ? ?? ?PSD (? ? ???? ????? ????JS?????? ? ? ? ??
+  // Background PSD snapshot (client-side noise-floor subtraction uses this)
   if (dspBgSegs > 0) {
     JsonArray bg = doc["bgPsd"].to<JsonArray>();
     for (int k = binMin; k <= binMax; k++) {
@@ -1181,7 +1190,7 @@ void handleGetPsd() {
   sendJson(doc);
 }
 
-// ???? POST /api/measure ?? ? ???? ? ?????????????????????????????????????
+// ============ POST /api/measure ============
 // body: {"cmd":"print_start"|"print_stop"|"stop"|"reset"}
 void handleMeasure() {
   if (!checkBodyLimit(8192)) return;
@@ -1192,7 +1201,7 @@ void handleMeasure() {
   JsonDocument res;
 
   if (strcmp(cmd,"print_start")==0) {
-    // v1.0: ??? ?? ????? ???????DSP
+    // v1.0: start a dual-axis print measurement (resets the dual DSP)
     if (!cfg.useCalWeights) {
       res["ok"] = false; res["error"] = "calibration_required";
       sendJson(res); return;
@@ -1207,9 +1216,9 @@ void handleMeasure() {
     Serial.println("[MEAS] print measurement started (dual-axis DSP)");
   }
   else if (strcmp(cmd,"print_stop")==0) {
-    // v1.0: ??? ???????
+    // v1.0: finalise print measurement and snapshot the PSDs
     dspUpdateDual();
-    // PSD ??? (???????? ???)
+    // Take a snapshot of the current PSDs so future reads are stable
     memset(measPsdX, 0, sizeof(measPsdX));
     memset(measPsdY, 0, sizeof(measPsdY));
     memset(measVarX, 0, sizeof(measVarX));
@@ -1225,7 +1234,7 @@ void handleMeasure() {
       measJerkX[i] = dspJerkPsdX[k]; measJerkY[i] = dspJerkPsdY[k];
     }
     measPsdValid = true;
-    saveMeasPsdToNVS();  // ????????????? ???
+    saveMeasPsdToNVS();  // persist the snapshot across reboots
     float pkPwrX=0, pkPwrY=0;
     peakFreqX = dspDualFindPeak(dspDualPsdX, dspDualSegCountX(), &pkPwrX);
     peakFreqY = dspDualFindPeak(dspDualPsdY, dspDualSegCountY(), &pkPwrY);
@@ -1248,9 +1257,9 @@ void handleMeasure() {
       dspDualGateRatio()*100, dspDualCorrelation()*100);
   }
   else if (strcmp(cmd,"stop")==0) {
-    // ? ? ??? ? ? (??? ?? ?????? ??? ???? ??
+    // Reset command: clear all measurement state (idle LED, DSP reset)
     if (measState == MEAS_PRINT) {
-      // print_stop?????? ? ??
+      // Only valid after print_stop (idempotent otherwise)
       dspUpdateDual();
       float pkPwrX=0, pkPwrY=0;
       peakFreqX = dspDualFindPeak(dspDualPsdX, dspDualSegCountX(), &pkPwrX);
@@ -1276,14 +1285,14 @@ void handleMeasure() {
 }
 
 
-// ???? GET /api/measure/status ???? ?? ? ????? ????????????????????
+// ============ GET /api/measure/status ============
 void handleMeasStatus() {
   JsonDocument doc;
-  // v1.0: 3??? ??(IDLE=0, PRINT=1, DONE=2)
+  // v1.0: three measurement states (IDLE=0, PRINT=1, DONE=2)
   const char* stStr[] = {"idle","print","done"};
   doc["state"]       = stStr[measState];
   doc["measState"]   = stStr[measState];
-  // Print Measure ? ??????????? ?? ?????? ???
+  // Print-Measure fields: include X/Y convergence + gate ratio
   if (measState == MEAS_PRINT) {
     doc["segCount"]  = dspDualSegCountY();
     doc["segCountX"] = dspDualSegCountX();
@@ -1321,8 +1330,8 @@ void handleMeasStatus() {
 #define DEEP_SLEEP_TIMEOUT_MS  (5 * 60 * 1000)
 static unsigned long lastActivityMs = 0;
 
-// ???? setup ????????????????????????????????????????????????????????????????????????????????????????
-// v0.9: ?? ???SSE ???? ? ?????? ??FFT PSD
+// ============ Live-mode SSE handler ============
+// v0.9: live SSE stream broadcasts the short-time FFT PSD as it accumulates
 void handleLiveStream() {
   WiFiClient client = server.client();
   client.println("HTTP/1.1 200 OK");
@@ -1331,7 +1340,7 @@ void handleLiveStream() {
   client.println("Connection: keep-alive");
   client.println("Access-Control-Allow-Origin: *");
   client.println();
-  // R72: ???? ??? ??? (orphan ? ?)
+  // R72: stop any previous live client (avoids orphan sockets)
   if (liveSSEClient && liveSSEClient.connected()) {
     liveSSEClient.stop();
   }
@@ -1351,29 +1360,7 @@ void handleLiveStop() {
   Serial.println("[LIVE] SSE stream stopped");
 }
 
-// Live-mode axis preference. Stored server-side for clients that want to
-// restore their last selection; the SSE payload itself always carries both
-// bx[] and by[], so switching this does not change wire format.
-static char liveAxis = 'a';  // 'x', 'y', or 'a' (all)
-
-void handleLiveAxis() {
-  if (!checkBodyLimit(8192)) return;
-  JsonDocument req;
-  if (deserializeJson(req, server.arg("plain"))) { server.send(400,"text/plain","JSON"); return; }
-  const char* ax = req["axis"] | "a";
-  if (ax[0] == 'x' || ax[0] == 'y' || ax[0] == 'a') {
-    liveAxis = ax[0];
-  }
-  // Reset DSP so the next segment starts clean after switching axis.
-  if (liveMode) { dspReset(); }
-  JsonDocument res;
-  res["ok"] = true;
-  const char axStr[2] = { liveAxis, '\0' };
-  res["axis"] = axStr;
-  sendJson(res);
-}
-
-// v0.9: WiFi ????
+// v0.9: WiFi scan endpoint
 void handleWifiScan() {
   int n = WiFi.scanNetworks(false, false, false, 300);
   JsonDocument doc;
@@ -1412,8 +1399,9 @@ void setup() {
 
   Serial.println("=== FEMTO SHAPER v0.9 ===");
 
-  // R31/R78: LittleFS ? ??- false=fail-on-missing ( ????? ???? )
-  // ?? ?? ? ???format ?? (begin(true)??? ? ?????? )
+  // R31/R78: mount LittleFS with format-on-failure disabled
+  //         (auto-format on failure can wipe user files silently)
+  // On failure we format explicitly instead of using begin(true).
   if (!LittleFS.begin(false)) {
     Serial.println("[ERROR] LittleFS mount failed - attempting reformat (DATA WILL BE LOST)");
     LittleFS.format();
@@ -1429,8 +1417,8 @@ void setup() {
   File f = root.openNextFile();
   while (f) { Serial.printf("  %s (%dB)\n",f.name(),f.size()); f=root.openNextFile(); }
 
-  loadConfig();  // NVS ??? ? ?? ? ???GPIO ? ? ???? ???? ??
-  // GPIO ? ? ??(loadConfig ?? ????NVS ?? ??? ? ???
+  loadConfig();  // load config (includes GPIO pin mapping used below)
+  // Apply GPIO pin mapping now that we have the (possibly NVS) values
   pinMode(cfg.pinLED, OUTPUT);
   digitalWrite(cfg.pinLED, HIGH);  // OFF
   pinMode(cfg.pinReset, INPUT_PULLUP); // reset button
@@ -1453,9 +1441,9 @@ void setup() {
     }
   }
   loadBgPsdFromNVS();
-  loadMeasPsdFromNVS();  // v1.0: ? ??PSD ? ??(??????? ?????)
+  loadMeasPsdFromNVS();  // v1.0: restore last measurement PSD snapshot
 
-  // ???? WiFi ? ? ??(AP / STA ? ??? ???? ????
+  // ============ WiFi bring-up (AP / STA by cfg.wifiMode) ============
   WiFi.mode(WIFI_OFF);
   delay(100);
   WiFi.disconnect(true);
@@ -1475,7 +1463,7 @@ void setup() {
 
   bool staConnected = false;
 
-  // STA ? ????? ??
+  // Try STA mode first (if configured)
   if (strcmp(cfg.wifiMode,"sta")==0 && strlen(cfg.staSSID) > 0) {
     Serial.printf("[WiFi] STA mode ??connecting to '%s'...\n", cfg.staSSID);
     WiFi.mode(WIFI_STA);
@@ -1503,7 +1491,7 @@ void setup() {
     }
   }
 
-  // AP ? ???(?? ?????? ?STA ???? ???????
+  // AP fallback (also the default when STA is not configured)
   if (!staConnected) {
     WiFi.mode(WIFI_AP);
     delay(200);
@@ -1539,7 +1527,7 @@ void setup() {
     Serial.println("[DNS] captive-portal DNS started");
   }
 
-  // mDNS: hostname.local ?????? ????(STA ? ?????? ???? ?
+  // mDNS: advertise <hostname>.local (STA mode only)
   if (staConnected) {
     esp_log_level_set("WiFiUdp", ESP_LOG_NONE);
     if (MDNS.begin(cfg.hostname)) {
@@ -1568,7 +1556,7 @@ void setup() {
   server.on("/settings.js",   [JS=JS]()   { serveFile("/settings.js",   JS); });
   server.on("/app.js",        [JS=JS]()   { serveFile("/app.js",        JS); });
   server.on("/report.js",     [JS=JS]()   { serveFile("/report.js",     JS); });
-  // adxl_test.js: ?? ? ??? ?? v0.8??????? ?
+  // adxl_test.js endpoint: retained for backward compatibility with v0.8 tools
 
   server.on("/api/config",      HTTP_GET,  handleGetConfig);
   server.on("/api/noise",       HTTP_GET,  handleGetNoise);
@@ -1592,14 +1580,15 @@ void setup() {
   server.on("/api/measure/status", HTTP_GET,  handleMeasStatus);
   server.on("/api/live/stream",    HTTP_GET,  handleLiveStream);
   server.on("/api/live/stop",      HTTP_POST, handleLiveStop);
-  server.on("/api/live/axis",      HTTP_POST, handleLiveAxis);
   server.on("/api/wifi/scan",      HTTP_GET,  handleWifiScan);
   server.on("/api/reboot",         HTTP_POST, []() {
     server.send(200, "application/json", "{\"ok\":true}");
     delay(500);
     ESP.restart();
   });
-  // R18.23: Factory reset endpoint - ?NVS namespace ?? ??? // POST /api/reset?all=1 ??? ? ?? ?????reboot ? // R26.1: ? ??? ?? ?( ? 4 ??? "all=1" + ?? ??? )
+  // R18.23: factory reset - wipes all NVS namespaces.
+  //         POST /api/reset?all=1 clears everything and reboots.
+  // R26.1: cap the query string at 4 bytes so "all=1" is the only valid value.
   server.on("/api/reset", HTTP_POST, []() {
     String allArg = server.arg("all");
     if (allArg.length() > 4) { server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad_arg\"}"); return; }
@@ -1619,8 +1608,10 @@ void setup() {
   });
   server.on("/favicon.ico", []() { server.send(204,"text/plain",""); });
 
-  // ???? ????? ??????? ????????????????????????????????????????????????????????
-  // Android/iOS/Windows/Firefox ?????????? ?? ?? ?????? // ? ? ?302 ? ???????? ????? ???????? ??? ?
+  // ============ Captive-portal probe URLs ============
+  // Android/iOS/Windows/Firefox all probe well-known URLs to detect
+  // captive portals; we respond 302 to the portal root so the phone/PC
+  // shows the "sign in to network" prompt.
   auto redirectToPortal = []() {
     { char loc[40]; snprintf(loc,sizeof(loc),"http://%s",AP_IP.toString().c_str()); server.sendHeader("Location",loc,true); }
     server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -1858,7 +1849,7 @@ void loop() {
     }
   }
 
-  // ???? 3?? ? ?AP ??? ???+ ?? ? ????? ??????????????????????????????????
+  // ============ 30-second AP watchdog + heap-pressure check ============
   if (millis() - lastApCheck > 30000) {
     lastApCheck = millis();
 
@@ -1866,7 +1857,7 @@ void loop() {
     uint32_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < 40000) {
       Serial.printf("[HEAP] low: %u bytes - WiFi may become unstable\n", freeHeap);
-      // ???? ????? ? ?? ? ???? ?? ?? ????? ??
+      // Only reboot if we are idle - avoid killing an active measurement
       if (measState == MEAS_IDLE || measState == MEAS_DONE) {
         if (freeHeap < 20000) {
           Serial.println("[HEAP] critical low - rebooting");
@@ -1875,12 +1866,12 @@ void loop() {
       }
     }
 
-    // WiFi ??? ??? ? ?+ ? ??
+    // WiFi status check + recovery
     if (WiFi.status() == WL_CONNECTED) {
       // STA connected - reset AP failure counter
       apFailCount = 0;
     } else if (strcmp(cfg.wifiMode,"sta")==0 && WiFi.status() != WL_CONNECTED) {
-      // STA ??? ????? ??????? ??? ??
+      // STA lost its connection: try reconnect, then fall back to AP
       apFailCount++;
       Serial.printf("[WiFi] STA reconnect %d/3\n", apFailCount);
       if (apFailCount <= 2) {
@@ -1910,7 +1901,7 @@ void loop() {
         delay(200);
         WiFi.mode(WIFI_AP);
         delay(200);
-        WiFi.setTxPower(txPower); // NVS ??? ?????
+        WiFi.setTxPower(txPower); // restore configured TX power
         WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255,255,255,0));
         WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);
         dnsServer.start(53, "*", AP_IP);
@@ -1927,7 +1918,7 @@ void loop() {
     ledState = WiFi.softAPgetStationNum() > 0 ? LED_ON : LED_OFF;
   updateLed();
 
-  // ???? GPIO10 ? ??? ? ???????
+  // ============ GPIO reset-button watchdog ============
   // R29.1/R29.2: Reset button - edge-triggered state machine + noise filter
   // 3x consecutive LOW confirms press; fires ESP.restart() ONLY on release (HIGH transition)
   static uint8_t _resetLowCount = 0;
@@ -1948,12 +1939,12 @@ void loop() {
     _resetPressed = false;
   }
 
-  // ???? ???? ?(5????? ??? ????
-  // ??????? ???????? ? ?? ????????? ??
+  // ============ Activity watchdog (5-minute idle deep-sleep) ============
+  // Any connected client or active measurement postpones sleep.
   if (WiFi.softAPgetStationNum() > 0 || measState != MEAS_IDLE) {
     lastActivityMs = millis();
   }
-  // ??? ???5???????? ? ????
+  // Sleep after 5 minutes of no activity
   if (millis() - lastActivityMs > DEEP_SLEEP_TIMEOUT_MS) {
     Serial.println("[SLEEP] 5min idle ??deep sleep (press reset to wake)");
     WiFi.mode(WIFI_OFF);
