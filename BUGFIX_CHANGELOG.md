@@ -2021,3 +2021,20 @@ live in main.cpp rather than inside `dsp*Reset()` helpers. Running
 total **199 bugs fixed** across rounds 1-28.
 
 ---
+
+## Round 29 — Restart-from-scratch lap 3/3 (2026-04-22)
+
+See `BUGFIX_COMMENT_ABSORB_ROUND29.md` for the per-item writeup.
+
+| # | File | Class | Summary |
+|---|---|---|---|
+| BF-R29-001 | `src/main.cpp` `handlePostConfig` txPower | MEDIUM | `cfg.txPower` change now invokes `WiFi.setTxPower()` live; mapping + setter moved into the handler |
+
+Collateral: `static wifi_power_t txPower` declaration moved to the top
+of main.cpp (was inside the AP-watchdog section, post-handlePostConfig).
+
+3-lap summary (R27~R29): lap 1 found 2 diagnostic-consistency fixes,
+lap 2 found 2 functional state-leak fixes, lap 3 found 1 MEDIUM fix.
+Running total **200 bugs fixed** across rounds 1-29.
+
+---

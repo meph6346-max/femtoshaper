@@ -47,6 +47,10 @@ static char _jbuf[32768];
 // because two char[8192] locals in loop() left no margin for call frames and
 // risked silent stack overflow. See BF-R14-001.
 static char _sseBuf[8192];
+// WiFi TX power active-state mirror. Declared early so handlePostConfig can
+// push runtime updates; kept in sync with cfg.txPower by setup() and by the
+// txPower branch of handlePostConfig (R29).
+static wifi_power_t txPower = WIFI_POWER_8_5dBm;
 inline void sendJson(JsonDocument& doc) {
   // R32: measureJson() predicts length before serializing to prevent truncation
   size_t need = measureJson(doc);
@@ -938,7 +942,23 @@ void handlePostConfig() {
       int d = abs(t - allowed[i]);
       if (d < bestDist) { bestDist = d; best = allowed[i]; }
     }
-    cfg.txPower = best;
+    if (best != cfg.txPower) {
+      cfg.txPower = best;
+      // R11 pattern: without the runtime reapply the stored cfg/NVS value
+      // diverges from the actual hardware setting until next reboot or
+      // WiFi reconnect. Map to the WIFI_POWER_* enum and push live.
+      switch(best) {
+        case 2:  txPower = WIFI_POWER_2dBm;    break;
+        case 5:  txPower = WIFI_POWER_5dBm;    break;
+        case 8:  txPower = WIFI_POWER_8_5dBm;  break;
+        case 11: txPower = WIFI_POWER_11dBm;   break;
+        case 15: txPower = WIFI_POWER_15dBm;   break;
+        case 20: txPower = WIFI_POWER_19_5dBm; break;
+        default: txPower = WIFI_POWER_8_5dBm;
+      }
+      WiFi.setTxPower(txPower);
+      Serial.printf("[WiFi] TX power updated to %d dBm at runtime\n", best);
+    }
   }
   if (doc["minSegs"].is<int>()) {
     cfg.minSegs = constrain(doc["minSegs"].as<int>(), 10, 500);
@@ -1195,7 +1215,8 @@ void handleLoadDiag() {
 // ============ AP watchdog / WiFi tx-power ============
 unsigned long lastApCheck = 0;
 int apFailCount = 0;  // counts consecutive STA reconnect failures before AP fallback
-static wifi_power_t txPower = WIFI_POWER_8_5dBm;  // default WiFi TX power (overridden by cfg.txPower)
+// txPower moved to a forward-visible spot (was here) - handlePostConfig's
+// runtime reapply of txPower needs to write this from higher in the file.
 
 
 void saveMeasPsdToNVS() {
