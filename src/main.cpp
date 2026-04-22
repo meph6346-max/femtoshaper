@@ -192,6 +192,31 @@ static void spiReadXYZ(int16_t &x, int16_t &y, int16_t &z) {
   z = (int16_t)((b[5] << 8) | b[4]);
 }
 
+// Apply the BW_RATE register for the current cfg.sampleRate. Safe to call
+// while the device is already running (standby -> write -> measure), so we
+// can reconfigure without a reboot when the client changes sampleRate.
+// Returns true on success (readback verified), false otherwise.
+static bool adxlApplySampleRate() {
+  if (!adxlOK) return false;
+  spiWrite(REG_POWER_CTL, 0x00);  // Standby
+  delay(2);
+  uint8_t bwRate = 0x0F;
+  if      (cfg.sampleRate <= 400)  bwRate = 0x0C;
+  else if (cfg.sampleRate <= 800)  bwRate = 0x0D;
+  else if (cfg.sampleRate <= 1600) bwRate = 0x0E;
+  else                             bwRate = 0x0F;
+  spiWrite(REG_BW_RATE, bwRate);
+  uint8_t vr = spiRead(REG_BW_RATE);
+  if (vr != bwRate) {
+    Serial.printf("[ADXL] BW_RATE runtime update FAILED: wrote 0x%02X, read 0x%02X\n", bwRate, vr);
+    spiWrite(REG_POWER_CTL, 0x08);  // Back to Measure even on failure
+    return false;
+  }
+  spiWrite(REG_POWER_CTL, 0x08);  // Measure
+  Serial.printf("[ADXL] BW_RATE updated live: 0x%02X (%dHz)\n", bwRate, cfg.sampleRate);
+  return true;
+}
+
 // ============ ADXL init ============
 bool adxlInit() {
   Serial.printf("[ADXL] pins: SCK=%d MISO=%d MOSI=%d CS=%d INT1=%d\n",
@@ -758,9 +783,18 @@ void handlePostConfig() {
       dspBgEnergy = 0;
       bootNoiseDone = false;   // re-capture boot noise for the new rate
       bootNoiseSamples = 0;
-      Serial.printf("[CFG] sampleRate changed %d -> %d : measPsd/bgPsd invalidated, will recapture noise\n",
+      // Dual-axis accumulators hold data digitised at the OLD freqRes. If we
+      // leave them, any in-flight live SSE stream will report the old bin
+      // values with the new fr/bm metadata attached - a silent freq-axis mix.
+      dspResetDual();
+      Serial.printf("[CFG] sampleRate changed %d -> %d : measPsd/bgPsd/dual invalidated, will recapture noise\n",
                     cfg.sampleRate, newSR);
       cfg.sampleRate = newSR;
+      // CRITICAL: also reprogram the ADXL BW_RATE register. Without this the
+      // hardware keeps delivering samples at the old rate while the DSP now
+      // believes the rate is newSR - every peak ends up reported at
+      // (newSR/oldSR) x the real frequency.
+      adxlApplySampleRate();
     }
   }
   if (doc["kin"].is<const char*>()) strncpy(cfg.kin, doc["kin"] | "corexy", sizeof(cfg.kin)-1);
@@ -1227,6 +1261,13 @@ void handleMeasure() {
   JsonDocument res;
 
   if (strcmp(cmd,"print_start")==0) {
+    // Reject early if the accelerometer failed to initialise - otherwise the
+    // handler happily enters MEAS_PRINT and the loop's 5-second silence
+    // detector (R20.35) aborts with a confusing "disconnect" message.
+    if (!adxlOK) {
+      res["ok"] = false; res["error"] = "adxl_not_ready";
+      sendJson(res); return;
+    }
     // v1.0: start a dual-axis print measurement (resets the dual DSP)
     if (!cfg.useCalWeights) {
       res["ok"] = false; res["error"] = "calibration_required";

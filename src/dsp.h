@@ -610,12 +610,20 @@ float dspDualFindPeak(float* psd, int segCount, float* outPower);
 
 //
 void dspFeedDual(float valX, float valY) {
-  // DC
+  // DC tracker - time constant tied to sample rate so transient response is
+  // consistent across rates. Previously alpha was a fixed 0.001, giving ~0.3s
+  // at 3200Hz but 2.5s at 400Hz - the latter leaves significant DC leakage
+  // in the low-frequency bins of the first few segments after a quiet->active
+  // transition. Using ~0.3s nominal at any rate:
+  //   alpha = 1 / (0.3 * fs)   i.e. ~0.001 at 3200Hz, ~0.008 at 400Hz.
+  const float fs = dspGetSampleRate();
+  const float dcAlpha = (fs > 1.0f) ? (1.0f / (0.3f * fs)) : 0.001f;
+  const float dcOneM  = 1.0f - dcAlpha;
   if (!_dcInit) {
     _dcX = valX; _dcY = valY; _dcInit = true;
   } else {
-    _dcX = _dcX * 0.999f + valX * 0.001f;
-    _dcY = _dcY * 0.999f + valY * 0.001f;
+    _dcX = _dcX * dcOneM + valX * dcAlpha;
+    _dcY = _dcY * dcOneM + valY * dcAlpha;
   }
 
   _dualBufX[_dualFill] = valX - _dcX;
@@ -650,11 +658,20 @@ void dspFeedDual(float valX, float valY) {
     _dualLastEnergyX = eX;
     _dualLastEnergyY = eY;
 
-    // EMA ( )
+    // Energy EMA with sample-rate-aware alpha so the smoothing time constant
+    // is ~2.6 s of real time at every rate. Previously alpha was a fixed 0.03
+    // per segment, which is 2.6 s at 3200Hz but 21 s at 400Hz - the latter
+    // makes the adaptive-weight logic nearly static. alpha = dt / tau where
+    // dt = DSP_STEP / fs (seconds between segments) and tau = 2.6 s.
     if (_dualSegTotal <= 3) {
       _dualEnergyEMA = eSum;
     } else {
-      _dualEnergyEMA = _dualEnergyEMA * 0.97f + eSum * 0.03f;
+      float fsLocal = dspGetSampleRate();
+      float dt = (fsLocal > 1.0f) ? ((float)DSP_STEP / fsLocal) : 0.08f;
+      float eAlpha = dt / 2.6f;
+      if (eAlpha > 0.5f) eAlpha = 0.5f;   // safety cap at very low fs
+      if (eAlpha < 0.001f) eAlpha = 0.001f;
+      _dualEnergyEMA = _dualEnergyEMA * (1.0f - eAlpha) + eSum * eAlpha;
     }
 
     //

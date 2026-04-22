@@ -8,6 +8,62 @@
 
 ---
 
+### 2026-04-22 round 11 (Claude Opus 4.7): runtime-state audit — 6 more bugs, one CRITICAL
+
+User demanded deeper digging ("a tiny bug can distort accuracy heavily").
+Methodology: trace every config value through its runtime state paths
+(config -> DSP -> hardware -> client) and check for mismatches.
+
+**Fixed (6):**
+
+- **CRITICAL**: `/api/config` sampleRate change never reprogrammed the
+  ADXL BW_RATE register. `adxlInit()` runs once at boot; subsequent rate
+  changes updated cfg and DSP but left the hardware at the old rate.
+  Every peak reported at `(newRate/oldRate) × real_freq` - silent 2x or
+  0.5x frequency error. Fixed with new `adxlApplySampleRate()` helper
+  that stand-by/writes/verifies/resumes in-place, called on every rate
+  change in handlePostConfig.
+- **MEDIUM**: sampleRate change also left the dual-axis PSD accumulators
+  populated with old-rate data. Live SSE would publish frames tagged
+  with the new fr/bm metadata while bx[]/by[] still held weighted
+  averages from before the change. Now calls dspResetDual() on rate
+  change.
+- **LOW (UX)**: `handleMeasure "print_start"` didn't check `adxlOK`.
+  With a failed ADXL init, the handler entered MEAS_PRINT, then the
+  5-second silence watchdog fired, and the UI showed "disconnect
+  detected" as if the ADXL had been working. Now rejects upfront with
+  `{"error":"adxl_not_ready"}`.
+- **MEDIUM**: DC tracker alpha was a fixed `0.001` per sample, giving
+  a time constant of 0.31s at 3200Hz but 2.5s at 400Hz. At low rates
+  the DC tracker is essentially not tracking - low-freq bins stay
+  contaminated for several Welch segments. Fixed to
+  `alpha = 1/(0.3 * fs)` so the time constant is ~0.3s at any rate.
+- **MEDIUM**: Energy EMA alpha was a fixed `0.03` per segment, giving
+  a time constant of 2.6s at 3200Hz but 21s at 400Hz. At low rates
+  the "typical energy" never catches up, so the adaptive weighting
+  stays floored at 0.01 and the dynamic-weighting machinery does
+  nothing. Fixed to derive alpha from `(DSP_STEP/fs)/2.6` so the
+  EMA's real-time constant is ~2.6s at any rate.
+- **Regression guard**: round 10 snapped cfg.sampleRate to nearest
+  ADXL-supported rate in both loadConfig and handlePostConfig. With
+  BF-R11-001 now reprogramming hardware on every rate change, the
+  snap ensures the runtime path stays lockstep between DSP and HW.
+
+**Verification:**
+```
+g++ -c -O2 -Wall -Wextra -I/tmp/stubs src/main.cpp     # 0 warnings
+braces/parens balanced on main.cpp and dsp.h
+node --check data/*.js test/*.js                        # all pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND11.md`](./BUGFIX_COMMENT_ABSORB_ROUND11.md)
+explains each bug in detail, includes a sample-rate vs time-constant
+table showing how the fixed-alpha EMAs silently degraded at non-default
+rates, and documents a known limitation: runtime pin changes still
+require a reboot (same class of bug as BF-R11-001 but lower impact).
+
+**Running total:** 162 (before) + 6 = **168 bugs fixed**.
+
 ### 2026-04-22 round 10 (Claude Opus 4.7): state-machine + NVS names + hardware/DSP rate — 6 more bugs
 
 User sternly told me not to trust my "clean" reports. I kept digging.
