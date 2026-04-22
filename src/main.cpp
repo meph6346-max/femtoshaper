@@ -921,18 +921,23 @@ void handleLoadResult() {
   JsonDocument doc;
   if (!prefs.begin("femto_res",true)) {
     prefs.end();
-    doc["hasResult"]=false;doc["freqX"]=0;doc["freqY"]=0;doc["shaperType"]="";doc["confidence"]=0;
+    doc["hasResult"]=false;doc["freqX"]=0;doc["freqY"]=0;doc["shaperType"]="";doc["confidence"]=0;doc["savedAt"]=0;
   } else {
     float freqX=prefs.getFloat("freqX",0), freqY=prefs.getFloat("freqY",0);
     char shType[16]=""; prefs.getString("shaperType",shType,sizeof(shType));
     char shTypeX[16]; prefs.getString("shaperTypeX",shTypeX,sizeof(shTypeX)); if(!shTypeX[0]) strncpy(shTypeX,shType,sizeof(shTypeX)-1);
     char shTypeY[16]; prefs.getString("shaperTypeY",shTypeY,sizeof(shTypeY)); if(!shTypeY[0]) strncpy(shTypeY,shType,sizeof(shTypeY)-1);
     float conf=prefs.getFloat("confidence",0);
+    // savedAt is written by handleSaveResult via putULong. The client uses it as
+    // a newer-wins tie-breaker when multiple tabs race to load. Without this
+    // field the race guard in data/app.js (R20.30) silently never fires.
+    unsigned long savedAt=prefs.getULong("savedAt",0);
     prefs.end();
     doc["freqX"]=freqX; doc["freqY"]=freqY;
     doc["shaperType"]=shType;
     doc["shaperTypeX"]=shTypeX; doc["shaperTypeY"]=shTypeY;
     doc["confidence"]=conf;
+    doc["savedAt"]=savedAt;
     doc["hasResult"]=(freqX>0&&freqY>0);
   }
   sendJson(doc);
@@ -1083,6 +1088,15 @@ void handleGetPsd() {
     doc["sampleRate"] = measSampleRate;
     doc["binMin"] = measBinMin;
     doc["binCount"] = measBinCount;
+    // Peak summary from the last print_stop snapshot. data/app.js reads
+    // peakPowerX/Y (via `d.peakPowerX || 0`) when building lastShaperResult;
+    // without these fields the UI silently shows power=0 for both axes.
+    doc["peakFreqX"]  = peakFreqX;
+    doc["peakFreqY"]  = peakFreqY;
+    doc["peakPowerX"] = peakPowerX;
+    doc["peakPowerY"] = peakPowerY;
+    doc["segsX"]      = segCountX;
+    doc["segsY"]      = segCountY;
     // X-axis bins
     JsonArray bx = doc["binsX"].to<JsonArray>();
     for (int i = 0; i < measBinCount; i++) {
@@ -1730,9 +1744,12 @@ void loop() {
         if (liveSSEClient.connected()) {
           dspUpdateDual();
           char buf[2048];  // Room for the full PSD payload plus metadata.
+          // fr/bm expose the bin geometry so clients can label axes correctly
+          // at any cfg.sampleRate (live chart used to hard-code 3.125Hz/bin).
           int len = snprintf(buf, sizeof(buf),
-            "data: {\"m\":\"print\",\"sx\":%d,\"sy\":%d,\"st\":%d,\"gr\":%.2f,\"bx\":[",
-            dspDualSegCountX(), dspDualSegCountY(), dspDualSegTotal(), dspDualGateRatio());
+            "data: {\"m\":\"print\",\"sx\":%d,\"sy\":%d,\"st\":%d,\"gr\":%.2f,\"fr\":%.4f,\"bm\":%d,\"bx\":[",
+            dspDualSegCountX(), dspDualSegCountY(), dspDualSegTotal(), dspDualGateRatio(),
+            dspFreqRes(), dspBinMin());
           int binMin = dspBinMin();
           int binMax = dspBinMax();
           for (int k=binMin; k<=binMax && len<(int)sizeof(buf)-12; k++) {
@@ -1785,9 +1802,11 @@ void loop() {
           dspUpdateDual();
           if (liveSSEClient.connected()) {
             char buf[2048];
+            // fr/bm added so clients can derive Hz-per-bin at any sampleRate.
             int len = snprintf(buf, sizeof(buf),
-              "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"bx\":[",
-              dspDualSegTotal(), dspDualSegTotal());
+              "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"fr\":%.4f,\"bm\":%d,\"bx\":[",
+              dspDualSegTotal(), dspDualSegTotal(),
+              dspFreqRes(), dspBinMin());
             int binMin = dspBinMin();
             int binMax = dspBinMax();
             for (int k=binMin; k<=binMax && len<(int)sizeof(buf)-12; k++) {

@@ -59,6 +59,10 @@ function toggleLive() {
     liveEventSource.onmessage = (evt) => {
       try {
         const d = JSON.parse(evt.data);
+        // Propagate bin geometry to chart renderers (charts.js reads
+        // window.liveBinMin / liveFreqRes to draw correct Hz labels).
+        if (typeof d.bm === 'number') window.liveBinMin  = d.bm;
+        if (typeof d.fr === 'number') window.liveFreqRes = d.fr;
         // v1.0: (bx/by)
         const binsX = d.bx || d.b || [];
         const binsY = d.by || [];

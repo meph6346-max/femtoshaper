@@ -182,8 +182,13 @@ function drawLiveFrame(liveData, dataY) {
     return 'rgba(208,135,112,0.9)';                    // ( )
   });
 
+  // Bin geometry may be overridden per-frame via window.liveBinMin / liveFreqRes
+  // (set by live.js from the SSE "bm"/"fr" fields). Defaults are the 3200Hz
+  // geometry so behaviour is unchanged when the server does not send them.
+  const binMinLive  = (typeof window.liveBinMin  === 'number' && window.liveBinMin  > 0) ? window.liveBinMin  : 6;
+  const freqResLive = (typeof window.liveFreqRes === 'number' && window.liveFreqRes > 0) ? window.liveFreqRes : 3.125;
   const labels = [];
-  for (let i=0; i<liveData.length; i++) labels.push(((i+6)*3.125).toFixed(1));
+  for (let i=0; i<liveData.length; i++) labels.push(((i+binMinLive)*freqResLive).toFixed(1));
 
   //
   const hint = document.getElementById('liveHint');
@@ -233,10 +238,12 @@ function drawLiveFrame(liveData, dataY) {
     _lastLiveStatusUpdate = now;
     const st = document.getElementById('liveStatus');
     if (st) {
-      // hitMap
+      // hitMap - use dynamic bin geometry (falls back to 3200Hz defaults)
+      const hmBinMin  = (typeof window.liveBinMin  === 'number' && window.liveBinMin  > 0) ? window.liveBinMin  : 6;
+      const hmFreqRes = (typeof window.liveFreqRes === 'number' && window.liveFreqRes > 0) ? window.liveFreqRes : 3.125;
       let topBins = [];
-      for (let i=0; i<59; i++) {
-        if (_hitMap[i] > 0.15) topBins.push({f:((i+6)*3.125), h:_hitMap[i]});
+      for (let i=0; i<_hitMap.length && i<liveData.length; i++) {
+        if (_hitMap[i] > 0.15) topBins.push({f:((i+hmBinMin)*hmFreqRes), h:_hitMap[i]});
       }
       topBins.sort((a,b) => b.h - a.h);
       if (topBins.length > 0) {

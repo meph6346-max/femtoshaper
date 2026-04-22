@@ -23,15 +23,22 @@ function filterByBackground(psd, bgPsd) {
   var noiseFloor = vals[Math.floor(vals.length * filterNoiseFloorPct)] || 0;
   var threshold = Math.max(noiseFloor * filterNoiseMultiplier, filterPsdThreshold);
 
+  // Determine bin spacing from the PSD itself so we don't hard-code 3.125Hz
+  // (which is only the freqRes at sampleRate=3200). For lower sample rates the
+  // freqRes is smaller (e.g. 1.5625Hz @ 1600, 0.39Hz @ 400) and a fixed /3.125
+  // denominator maps the wrong bgPsd bin to each PSD point.
+  var binRes = (psd.length > 1) ? (psd[1].f - psd[0].f) : 3.125;
+  if (!(binRes > 0) || !isFinite(binRes)) binRes = 3.125;
+  var bgStartHz = (psd.length > 0) ? psd[0].f : filterFreqMin;
+
   return psd.map(function(p) {
     if (p.f < filterFreqMin) return { f: p.f, v: 0, var: p.var || 0 };
     var bgV = 0;
     if (bgPsd && Array.isArray(bgPsd)) {
-      var bgIdx = Math.round((p.f - filterFreqMin) / 3.125);
+      var bgIdx = Math.round((p.f - bgStartHz) / binRes);
       if (bgIdx >= 0 && bgIdx < bgPsd.length) bgV = bgPsd[bgIdx] || 0;
     }
-    // R46: 70% clamp
-    // ( )
+    // R46: cap background subtraction at 70% of signal to avoid over-subtraction
     var bgMax = p.v * 0.7;
     var bgEffective = Math.min(bgV, bgMax);
     var v = Math.max(0, p.v - bgEffective);

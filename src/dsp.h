@@ -630,9 +630,14 @@ void dspFeedDual(float valX, float valY) {
     // 45,000 (~60 )
     // ( )
     if (_dualSegTotal > 0 && (_dualSegTotal % DUAL_MAX_TOTAL_SEGS) == 0) {
+      // Scale-preserving halving: every accumulator divided by weight sum below
+      // must halve together, otherwise its normalised value jumps at the boundary.
+      // The jerk PSD sums were missed in the original code, making the published
+      // jerkPsdX/Y double after every ~60-second rollover.
       for (int k = 0; k < DSP_NBINS; k++) {
-        _dualPsdSumX[k] *= 0.5f; _dualPsdSumY[k] *= 0.5f;
-        _dualPsdSqX[k]  *= 0.5f; _dualPsdSqY[k]  *= 0.5f;
+        _dualPsdSumX[k]      *= 0.5f; _dualPsdSumY[k]      *= 0.5f;
+        _dualPsdSqX[k]       *= 0.5f; _dualPsdSqY[k]       *= 0.5f;
+        _dualJerkPsdSumX[k]  *= 0.5f; _dualJerkPsdSumY[k]  *= 0.5f;
       }
       _dualWeightSum *= 0.5f;
       _dualMaxReached = true;

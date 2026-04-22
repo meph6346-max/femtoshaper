@@ -8,6 +8,60 @@
 
 ---
 
+### 2026-04-22 round 9 (Claude Opus 4.7): API contract + DSP scaling — 5 more real bugs
+
+Round 8 reported "clean". User insisted on a deeper look. This round did
+two things the prior rounds never did: (a) cross-check every JSON key
+the server writes against every key the client reads, and (b) walk the
+DSP accumulator rollover logic.
+
+**Fixed (5):**
+
+- **HIGH**: `GET /api/psd?mode=print` was missing `peakPowerX/Y`,
+  `peakFreqX/Y`, `segsX/Y`. Client built `lastShaperResult` with
+  `power: d.peakPowerX || 0` — always 0 because the server never
+  sent it. The globals existed (set at print_stop) but were not
+  serialised in the print-mode response path.
+- **MEDIUM**: `GET /api/result` never returned `savedAt`. Save path
+  writes `prefs.putULong("savedAt", millis())`; load path didn't
+  read it. The R20.30 newer-wins race guard on the client was
+  permanently disabled. Fixed both branches (real load + no-result
+  early path) to emit `savedAt`.
+- **MEDIUM**: `dsp.h` accumulator rollover (every 45000 segments)
+  halves `_dualPsdSum*` / `_dualPsdSq*` / `_dualWeightSum` to
+  prevent float overflow, but forgot `_dualJerkPsdSumX/Y`. Since
+  the published `dspJerkPsdX/Y = _dualJerkPsdSumX/Y / _dualWeightSum`,
+  halving only the denominator **doubled** the published jerk
+  values at every ~60-second rollover. Fixed in the same halving
+  loop.
+- **MEDIUM**: `data/filter.js` hardcoded `3.125` Hz/bin when mapping
+  PSD frequency to `bgPsd` index. At `cfg.sampleRate < 3200` the
+  real freqRes is smaller, so the wrong bgPsd bin was being
+  subtracted from each PSD point — silent background-cancel error.
+  Fixed to derive `binRes` from the PSD itself (`psd[1].f - psd[0].f`).
+- **MEDIUM**: Live SSE payload had no bin geometry. Client chart
+  labels hardcoded `(i+6)*3.125`, making X-axis Hz labels wrong at
+  any non-default sample rate. Server now emits `"fr":<freqRes>,
+  "bm":<binMin>` in both print and live SSE messages; `data/live.js`
+  propagates them via `window.liveBinMin` / `window.liveFreqRes`;
+  `data/charts.js` uses them (with 3200Hz defaults for backwards
+  compat).
+
+**Verification:**
+```
+braces + parens balanced on main.cpp and dsp.h
+g++ -c -O2 -Wall -Wextra                    0 warnings
+node --check on every data/ + test/ JS file  pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND9.md`](./BUGFIX_COMMENT_ABSORB_ROUND9.md)
+including one known limitation left for a future refactor: `live.js`
+and `charts.js` allocate `Array(59)` buffers that are fixed-size for
+the 3200Hz bin count. A proper multi-rate live pipeline is out of
+scope for this round.
+
+**Running total:** 151 (before) + 5 = **156 bugs fixed**.
+
 ### 2026-04-22 round 8 (Claude Opus 4.7): manual logic review after compiler went silent
 
 Rounds 1-7 drove `-Wall -Wextra` + syntax-only compile to zero. User
