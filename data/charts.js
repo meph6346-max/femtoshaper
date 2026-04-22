@@ -115,6 +115,11 @@ function drawBeltChart(aData, bData, peakA, peakB) {
 }
 
 let _liveChart = null;
+// Live PSD buffers start at 3200 Hz geometry (59 bins) but resize on the
+// first SSE frame when bin count differs (sampleRate != 3200 produces more
+// bins: e.g. ~117 at 1600 Hz, ~465 at 400 Hz). Without resizing, the
+// low-sample-rate frames were truncated to the first 59 bins, hiding the
+// upper half of the configured 18.75-200 Hz band.
 let liveDataY = new Array(59).fill(0);
 // +
 let _peakHold = new Array(59).fill(0);
@@ -122,6 +127,26 @@ let _hitMap = new Array(59).fill(0);
 let _peakHoldOn = true;
 let _liveFrameCount = 0;
 let _lastLiveStatusUpdate = 0;
+
+// Resize all live-mode PSD buffers to match the server-reported bin count.
+// Called from the SSE handler when the bin count in a frame differs from
+// the current buffer size. Safe to call every frame - a matched size is a
+// no-op.
+function ensureLiveBufSize(n) {
+  if (!Number.isFinite(n) || n <= 0) return;
+  if (typeof liveData !== 'undefined' && liveData.length !== n) {
+    liveData = new Array(n).fill(0);
+  }
+  if (liveDataY.length !== n) liveDataY = new Array(n).fill(0);
+  if (_peakHold.length !== n) _peakHold = new Array(n).fill(0);
+  if (_hitMap.length !== n)   _hitMap   = new Array(n).fill(0);
+  // Chart.js retains stale labels/datasets when array length changes, so
+  // drop the chart instance and let drawLiveFrame rebuild on the next call.
+  if (_liveChart) {
+    try { _liveChart.destroy(); } catch (e) {}
+    _liveChart = null;
+  }
+}
 
 function togglePeakHold() {
   _peakHoldOn = !_peakHoldOn;
@@ -164,7 +189,7 @@ function drawLiveFrame(liveData, dataY) {
   //
   const maxV = Math.max(...liveData, 1);
   const threshold = maxV * 0.05;
-  for (let i=0; i<59; i++) {
+  for (let i=0; i<liveData.length; i++) {
     // :
     if (_peakHoldOn) _peakHold[i] = Math.max(_peakHold[i] * 0.97, liveData[i]);
     // :

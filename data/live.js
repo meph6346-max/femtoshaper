@@ -80,11 +80,16 @@ function toggleLive() {
         const binsX = d.bx || d.b || [];
         const binsY = d.by || [];
         if (binsX.length > 0) {
+          // Resize buffers if the server sent a different bin count (happens
+          // on first frame after boot or a sampleRate change). Fixes the
+          // sampleRate != 3200 case where bin count is 117/233/465 but the
+          // client only retained 59, silently hiding higher-freq content.
+          if (typeof ensureLiveBufSize === 'function') ensureLiveBufSize(binsX.length);
           for (let i = 0; i < binsX.length && i < liveData.length; i++) {
             liveData[i] = liveData[i] * 0.3 + binsX[i] * 0.7;
             if (liveData[i] < 0.01) liveData[i] = 0;  //
           }
-          const ySmoothed = new Array(59).fill(0);
+          const ySmoothed = new Array(liveData.length).fill(0);
           for (let i = 0; i < binsY.length && i < ySmoothed.length; i++) {
             ySmoothed[i] = (typeof liveDataY !== 'undefined' ? liveDataY[i] : 0) * 0.3 + binsY[i] * 0.7;
             if (ySmoothed[i] < 0.01) ySmoothed[i] = 0;

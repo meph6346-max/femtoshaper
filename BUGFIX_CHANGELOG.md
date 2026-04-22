@@ -2058,3 +2058,18 @@ anywhere in the codebase — dead branch (left as-is, not a functional
 bug).
 
 ---
+
+## Round 31 — User-flow bug hunt (2026-04-22)
+
+See `BUGFIX_COMMENT_ABSORB_ROUND31.md` for the per-item writeup.
+
+| # | File | Class | Summary |
+|---|---|---|---|
+| BF-R31-001 | `data/live.js` + `data/charts.js` | MEDIUM | Live chart bin buffers hard-coded to 59; at sampleRate != 3200 the server sends more bins (117/233/465) but the client truncated, silently hiding the upper half of the band. New `ensureLiveBufSize()` resizes on first frame. |
+
+User-flow scanning found 1 MEDIUM bug that pattern-based scanning
+missed. Scenarios walked: first boot, uncalibrated measurement attempt,
+save-reboot-restore, live + sampleRate change (the hit), settings
+apply. Running total **201 bugs fixed** across rounds 1-31.
+
+---
