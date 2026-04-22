@@ -72,8 +72,27 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     const bgPsd = d.bgPsd || _bgPsdCache || null;
     if (d.bgPsd) _bgPsdCache = d.bgPsd;
 
-    const filteredX = filterByBackground(realPsdX, bgPsd);
-    const filteredY = filterByBackground(realPsdY, bgPsd);
+    // Phase 2: 전달함수 H(f) = X(f) / F(f) 계산 (jerk PSD 가용 시)
+    // OMA(출력전용) -> EMA(입력+출력) 격상
+    let psdXForAnalysis = realPsdX;
+    let psdYForAnalysis = realPsdY;
+    let _hfActive = false;
+    if (typeof useHfMode !== 'undefined' && useHfMode === false) {
+      // 사용자가 H(f) 모드 비활성화 (설정 페이지 토글)
+    } else if (d.jerkX && d.jerkY && d.jerkX.length === realPsdX.length && typeof computeTransferFunction === 'function') {
+      const hX = computeTransferFunction(realPsdX, d.jerkX);
+      const hY = computeTransferFunction(realPsdY, d.jerkY);
+      if (hX && hY) {
+        psdXForAnalysis = hX;
+        psdYForAnalysis = hY;
+        _hfActive = true;
+        const bx = d.jerkBroadnessX || 0, by = d.jerkBroadnessY || 0;
+        appLog('logShaper', `<span class="log-ok">H</span> Transfer function H(f) active (input broadness X:${(bx*100).toFixed(0)}% Y:${(by*100).toFixed(0)}%)`);
+      }
+    }
+
+    const filteredX = filterByBackground(psdXForAnalysis, bgPsd);
+    const filteredY = filterByBackground(psdYForAnalysis, bgPsd);
     const cleanX = typeof filterFanPeaks === 'function' ? filterFanPeaks(filteredX) : filteredX;
     const cleanY = typeof filterFanPeaks === 'function' ? filterFanPeaks(filteredY) : filteredY;
 
@@ -149,6 +168,20 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     yAnalysis._peaks = peaksY;
     xAnalysis._harmonics = peaksX.filter(p => p.isHarmonic);
     yAnalysis._harmonics = peaksY.filter(p => p.isHarmonic);
+    xAnalysis._hfMode = _hfActive;
+    yAnalysis._hfMode = _hfActive;
+
+    // Phase 1-B: 피크 주파수 95% 신뢰구간 계산
+    if (typeof computePeakCI === 'function') {
+      const segs = (quality.segCountX ?? quality.segsX) || 100;
+      const ciX = computePeakCI(realPsdX, filtPeakX, { segs });
+      const ciY = computePeakCI(realPsdY, filtPeakY, { segs });
+      if (ciX) { xAnalysis.freqCI = { sigma: ciX.sigma, lo: ciX.lo, hi: ciX.hi, snr: ciX.snr }; }
+      if (ciY) { yAnalysis.freqCI = { sigma: ciY.sigma, lo: ciY.lo, hi: ciY.hi, snr: ciY.snr }; }
+      if (ciX && ciY) {
+        appLog('logShaper', `<span class="log-ok">\u00b1</span> 95% CI: X ${filtPeakX.toFixed(1)}\u00b1${(1.96*ciX.sigma).toFixed(2)}Hz, Y ${filtPeakY.toFixed(1)}\u00b1${(1.96*ciY.sigma).toFixed(2)}Hz`);
+      }
+    }
 
     peakFreqXGlobal = filtPeakX;
     peakFreqYGlobal = filtPeakY;

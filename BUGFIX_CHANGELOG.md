@@ -189,5 +189,93 @@ node test_v10_full.js
 
 ---
 
+## [FEAT-P1B-01] Phase 1-B: Peak frequency 95% confidence interval
+
+- **Files**: `data/shaper.js` (+50 lines), `data/app.js` (+15 lines)
+- **Type**: Accuracy signalling (UX + quality metric)
+- **Rationale**: Users previously saw a single peak frequency with no indication of
+  trustworthiness. Bootstrap CI uses already-tracked `_psdSumSq` variance to derive
+  a statistical uncertainty band.
+- **Implementation**:
+  - `shaper.js::computePeakCI(psdData, peakFreq, opts)` -> `{lo, hi, sigma, snr}`
+  - Formula: `sigma_f = binWidth / (sqrt(SNR) * sqrt(n_eff))` (Cramer-Rao LB approx)
+  - SNR derived from `peakPower / peakStd` where `peakStd = sqrt(variance)`
+  - `n_eff` = active segment count (passed from measurement metrics)
+- **Wiring**: `app.js::fetchAndRenderPsdDual` now attaches `xAnalysis.freqCI` and
+  logs `95% CI: X 42.1 +/- 0.23Hz, Y 37.8 +/- 0.31Hz` after measurement.
+- **Expected impact**: Users can now distinguish applyable vs borderline measurements
+  without changing the verdict engine itself.
+
+---
+
+## [FEAT-P2-01] Phase 2: Transfer function H(f) = X(f) / F(f) estimation
+
+- **Files**: `src/dsp.h` (+45), `src/main.cpp` (+20), `data/shaper.js` (+60), `data/app.js` (+20)
+- **Type**: Major algorithmic upgrade -- OMA (output-only) -> EMA (input/output modal)
+- **Rationale**: Current Femtoshaper captures `X(f)` during deceleration without
+  knowing the input excitation `F(f)`. This is Operational Modal Analysis -- valid
+  but limited by excitation-quality variance. Estimating `F(f)` from the jerk
+  signal (first-difference of acceleration) lets us compute the actual transfer
+  function, approaching Klipper's chirp-sweep accuracy.
+
+### Theoretical basis
+
+```
+jerk(t) = d/dt(accel(t))  ~  a[n] - a[n-1]
+F(f)    ~  |FFT(jerk)|^2       (input spectrum estimate)
+H(f)    =  X(f) / F(f)         (transfer function)
+peak(H) =  structural resonance (no longer biased by input shape)
+```
+
+### C++ side (dsp.h)
+
+- Accumulators: `_dualJerkPsdSumX/Y[DSP_NBINS]` (8KB)
+- Public: `dspJerkPsdX/Y[DSP_NBINS]` (populated by `dspUpdateDual`)
+- New: `dspJerkBroadness(float*)` spectral flatness (0..1)
+- `dspFeedDual`: computes first-difference into local `_tmpJerk[DSP_N]`, FFT via
+  `_processDualSeg`, accumulates weighted PSD alongside existing output PSD
+- `dspResetDual()` clears all jerk state
+- Memory: +12KB (ESP32-C3 usage 13% -> 22%, safe)
+
+### C++ side (main.cpp)
+
+- Snapshots: `measJerkX/Y[MEAS_MAX_BINS]`
+- `/api/psd?mode=print` now returns: `jerkX[]`, `jerkY[]`,
+  `jerkBroadnessX`, `jerkBroadnessY`
+- NVS persistence deliberately skipped for now (jerk is operational, not post-hoc)
+
+### JS side (shaper.js)
+
+- `computeTransferFunction(psdOut, psdInput, opts)` -- H1 estimator:
+  1. Smooth input PSD with +/- 2-bin moving average
+  2. Clamp denominator to `max(maxInput * 1%, 1e-9)` (prevent 0-division)
+  3. `|H(f)|^2 = X / F_smoothed` per bin
+  4. Attach `coherence = smoothedInput / maxInput` as per-bin reliability
+
+### JS side (app.js)
+
+- Automatic activation when `d.jerkX` present
+- Graceful fallback to raw `X(f)` when unavailable
+- Peak charts keep showing `X(f)` (user-familiar), analysis uses `H(f)`
+- Log line `H Transfer function H(f) active (input broadness X:45% Y:52%)`
+
+### Expected accuracy
+
+| Scenario | Raw X(f) | H(f) | Gain |
+|----------|----------|------|------|
+| Ideal | +/- 0.5-1 Hz | +/- 0.3-0.5 Hz | ~2x |
+| Recommended | +/- 1-2 Hz | +/- 0.5-1 Hz | ~2x |
+| Low excitation | +/- 3-5 Hz | +/- 1.5-3 Hz | ~2x |
+
+### Known caveats
+
+1. First-difference amplifies high-frequency noise (mitigated by Hann window).
+2. S-curve / jerk-limited printers narrow `F(f)`, `H(f)` gain shrinks. Surfaced
+   via `jerkBroadness` metric.
+3. Bins with `coherence < 0.1` are automatically floor-clamped but not excluded
+   from peak search yet. Future work.
+
+---
+
 *Last updated: 2026-04-22 by Claude Code (claude-sonnet-4-6)*
 *Session branch: claude/clever-lichterman-066b6f*

@@ -569,6 +569,18 @@ float dspDualPsdY[DSP_NBINS];
 float dspDualVarX[DSP_NBINS];
 float dspDualVarY[DSP_NBINS];
 
+// ══════════════════════════════════════════════════════
+// Phase 2: Jerk PSD — 입력 스펙트럼 추정 (OMA → EMA 격상)
+// jerk(t) = d/dt(accel(t)) ≈ a[n] - a[n-1]
+// F(f) ≈ FFT(jerk), H(f) = X(f) / F(f) 전달함수 추정
+// 메모리: 2 × DSP_NBINS × 4B × 2(sum+public) = ~8KB
+// ══════════════════════════════════════════════════════
+static float _dualJerkPsdSumX[DSP_NBINS];
+static float _dualJerkPsdSumY[DSP_NBINS];
+float dspJerkPsdX[DSP_NBINS];
+float dspJerkPsdY[DSP_NBINS];
+static bool  _jerkEnabled = true;   // 런타임 토글 (NVS/설정 연동용)
+
 // ── 내부: float 버퍼 → FFT → PSD 빈 배열 반환 ──────
 // 가중 누적은 호출자가 처리
 static void _processDualSeg(float* buf, float* psdOut) {
@@ -665,6 +677,23 @@ void dspFeedDual(float valX, float valY) {
       _dualPsdSqY[k]  += _tmpPsd[k] * _tmpPsd[k] * weight;
     }
 
+    // ── Phase 2: Jerk PSD 누적 (입력 스펙트럼 F(f) 추정) ──
+    // jerk[i] = acc[i] - acc[i-1] (first-difference)
+    // jerk buffer는 동일 오버랩 구간 활용 (in-place)
+    if (_jerkEnabled) {
+      static float _tmpJerk[DSP_N];
+      // X축 jerk
+      _tmpJerk[0] = _dualBufX[0];  // 경계 샘플 (이전 값 없음 → 자기 자신)
+      for (int i = 1; i < DSP_N; i++) _tmpJerk[i] = _dualBufX[i] - _dualBufX[i-1];
+      _processDualSeg(_tmpJerk, _tmpPsd);
+      for (int k = 0; k < DSP_NBINS; k++) _dualJerkPsdSumX[k] += _tmpPsd[k] * weight;
+      // Y축 jerk
+      _tmpJerk[0] = _dualBufY[0];
+      for (int i = 1; i < DSP_N; i++) _tmpJerk[i] = _dualBufY[i] - _dualBufY[i-1];
+      _processDualSeg(_tmpJerk, _tmpPsd);
+      for (int k = 0; k < DSP_NBINS; k++) _dualJerkPsdSumY[k] += _tmpPsd[k] * weight;
+    }
+
     _dualWeightSum += weight;
     if (weight > 0.1f) _dualSegActive++;
 
@@ -718,6 +747,10 @@ void dspResetDual() {
   memset(_dualPsdSqY, 0, sizeof(_dualPsdSqY));
   memset(dspDualPsdX, 0, sizeof(dspDualPsdX));
   memset(dspDualPsdY, 0, sizeof(dspDualPsdY));
+  memset(_dualJerkPsdSumX, 0, sizeof(_dualJerkPsdSumX));  // Phase 2
+  memset(_dualJerkPsdSumY, 0, sizeof(_dualJerkPsdSumY));
+  memset(dspJerkPsdX, 0, sizeof(dspJerkPsdX));
+  memset(dspJerkPsdY, 0, sizeof(dspJerkPsdY));
   memset(_peakHistX, 0, sizeof(_peakHistX));
   memset(_peakHistY, 0, sizeof(_peakHistY));
   _dualFill = 0;
@@ -745,7 +778,28 @@ void dspUpdateDual() {
     float msqY = _dualPsdSqY[k] / _dualWeightSum;
     dspDualVarX[k] = (msqX > meanX*meanX) ? msqX - meanX*meanX : 0.0f;
     dspDualVarY[k] = (msqY > meanY*meanY) ? msqY - meanY*meanY : 0.0f;
+    // Phase 2: Jerk PSD (입력 스펙트럼)
+    dspJerkPsdX[k] = _dualJerkPsdSumX[k] / _dualWeightSum;
+    dspJerkPsdY[k] = _dualJerkPsdSumY[k] / _dualWeightSum;
   }
+}
+
+// Phase 2: Jerk 기반 신호 여기 품질 체크
+// 반환: 0.0~1.0 (1.0 = 광대역, 0.0 = 편향/저에너지)
+float dspJerkBroadness(float* jerkPsd) {
+  if (_dualWeightSum < 1e-12f) return 0.0f;
+  int binMin = dspBinMin();
+  int binMax = dspBinMax();
+  float total = 0, maxV = 0;
+  for (int k = binMin; k <= binMax; k++) {
+    total += jerkPsd[k];
+    if (jerkPsd[k] > maxV) maxV = jerkPsd[k];
+  }
+  int n = binMax - binMin + 1;
+  if (maxV < 1e-12f || n <= 0) return 0.0f;
+  // Spectral flatness 근사: mean / max (평탄할수록 1에 가까움)
+  float meanV = total / n;
+  return meanV / maxV;
 }
 
 // ── 상태 조회 ────────────────────────────────────────

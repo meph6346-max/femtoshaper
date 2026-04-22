@@ -39,6 +39,93 @@ function _scv()      { return typeof getCfgScv      === 'function' ? getCfgScv()
 function _damping()  { return typeof getCfgDamping  === 'function' ? getCfgDamping()  : DEFAULT_DAMPING; }
 function _targetSm() { return typeof getCfgTargetSm === 'function' ? getCfgTargetSm() : TARGET_SMOOTHING; }
 
+// ══════════════════════════════════════════════════════
+// Phase 2: 전달함수 추정 H(f) = X(f) / F(f)
+// OMA → EMA 격상: jerk PSD를 입력 스펙트럼으로 사용
+//
+// H1 추정기 (auto-spectrum 버전):
+//   |H(f)|^2 ≈ G_xx(f) / G_ff(f)
+//   여기서 G_xx = output PSD (measPsd), G_ff = input PSD (measJerk)
+//
+// 주의:
+//   - F(f)가 0인 bin에서 divison 발산 방지 → noise floor 클램프
+//   - 저SNR bin은 신뢰도 penalty
+//   - F(f) 스무딩으로 추정 분산 감소
+// ══════════════════════════════════════════════════════
+function computeTransferFunction(psdOut, psdInput, opts) {
+  opts = opts || {};
+  const n = (psdOut && psdOut.length) || 0;
+  if (!n || !psdInput || psdInput.length === 0) return null;
+
+  // 1) 입력 PSD 스무딩 (±2 bin 이동평균) — 분산 감소
+  const smoothed = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const lo = Math.max(0, i - 2), hi = Math.min(n - 1, i + 2);
+    let sum = 0, cnt = 0;
+    for (let j = lo; j <= hi; j++) {
+      const v = (typeof psdInput[j] === 'object') ? psdInput[j].v : psdInput[j];
+      if (isFinite(v)) { sum += v; cnt++; }
+    }
+    smoothed[i] = cnt > 0 ? sum / cnt : 0;
+  }
+
+  // 2) 입력 노이즈 플로어 (최대치의 1%) — 0-division 차단
+  let maxInput = 0;
+  for (let i = 0; i < n; i++) if (smoothed[i] > maxInput) maxInput = smoothed[i];
+  const noiseFloor = Math.max(maxInput * 0.01, 1e-9);
+
+  // 3) H(f) = X(f) / F(f)  (파워 도메인)
+  const H = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const fIn = Math.max(smoothed[i], noiseFloor);
+    const xVal = psdOut[i].v;
+    const coherence = Math.min(1, smoothed[i] / maxInput);  // 0~1 신뢰도
+    H[i] = {
+      f: psdOut[i].f,
+      v: xVal / fIn,           // |H(f)|^2 추정
+      coherence: coherence,    // 이 주파수에서 입력 에너지 충분한가
+      rawV: xVal,              // 원본 출력 PSD 보존
+      inputV: smoothed[i],     // 입력 스펙트럼 보존
+    };
+  }
+  return H;
+}
+
+// Phase 1-B: 피크 주파수 신뢰구간 계산
+// 분산 기반 불확실성 전파: σ_f ≈ Δf × √(var_peak / peak²) / √n_eff
+function computePeakCI(psdData, peakFreq, opts) {
+  opts = opts || {};
+  if (!psdData || psdData.length < 3 || !peakFreq) return null;
+
+  // 피크 인덱스 찾기
+  let peakIdx = -1, bestDist = Infinity;
+  for (let i = 0; i < psdData.length; i++) {
+    const d = Math.abs(psdData[i].f - peakFreq);
+    if (d < bestDist) { bestDist = d; peakIdx = i; }
+  }
+  if (peakIdx < 0) return null;
+
+  const binWidth = psdData.length > 1 ? Math.abs(psdData[1].f - psdData[0].f) : 3.125;
+  const peakPower = psdData[peakIdx].v;
+  const peakVar = psdData[peakIdx].var || 0;
+  if (peakPower <= 0) return null;
+
+  // 상대 분산 기반 σ_f (Cramér-Rao lower bound 근사)
+  // σ_f = (binWidth / SNR) × (1 / √n_eff)
+  const peakStd = Math.sqrt(peakVar);
+  const snr = peakPower / Math.max(peakStd, peakPower * 0.01);
+  const nEff = Math.max(1, opts.segs || 100);
+  const sigma_f = binWidth / (Math.sqrt(snr) * Math.sqrt(nEff) + 1);
+
+  return {
+    lo: peakFreq - 1.96 * sigma_f,
+    hi: peakFreq + 1.96 * sigma_f,
+    sigma: sigma_f,
+    snr: snr,
+    peakIdx: peakIdx,
+  };
+}
+
 
 // ── 쉐이퍼 A/T 계수 정의 ────────────────────────────
 // Klipper shaper_defs.py의 init_func 로직을 풀어쓴 것

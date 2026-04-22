@@ -804,10 +804,12 @@ static float peakFreqX = 0.0f, peakFreqY = 0.0f;
 static float peakPowerX = 0.0f, peakPowerY = 0.0f;
 static int   segCountX = 0, segCountY = 0;
 
-// v1.0: 筌β돦??PSD 獄쏄퉮毓?(??깆뵠?됰슣肉???묐립 ??쇰옘 獄쎻뫗?)
+// v1.0: 측정 PSD 스냅샷
 #define MEAS_MAX_BINS DSP_NBINS
 static float measPsdX[MEAS_MAX_BINS], measPsdY[MEAS_MAX_BINS];
 static float measVarX[MEAS_MAX_BINS], measVarY[MEAS_MAX_BINS];
+// Phase 2: Jerk PSD 스냅샷 (입력 스펙트럼)
+static float measJerkX[MEAS_MAX_BINS], measJerkY[MEAS_MAX_BINS];
 static int   measBinMin = 0;
 static int   measBinCount = 0;
 static bool  measPsdValid = false;
@@ -916,6 +918,15 @@ void handleGetPsd() {
       b["v"] = measPsdY[i];
       b["var"] = measVarY[i];
     }
+    // Phase 2: Jerk PSD (입력 스펙트럼 F(f))
+    JsonArray jx = doc["jerkX"].to<JsonArray>();
+    JsonArray jy = doc["jerkY"].to<JsonArray>();
+    for (int i = 0; i < measBinCount; i++) {
+      jx.add(measJerkX[i]);
+      jy.add(measJerkY[i]);
+    }
+    doc["jerkBroadnessX"] = dspJerkBroadness(dspJerkPsdX);
+    doc["jerkBroadnessY"] = dspJerkBroadness(dspJerkPsdY);
     // bgPsd
     if (dspBgSegs > 0) {
       JsonArray bg = doc["bgPsd"].to<JsonArray>();
@@ -1000,11 +1011,14 @@ void handleMeasure() {
     memset(measPsdY, 0, sizeof(measPsdY));
     memset(measVarX, 0, sizeof(measVarX));
     memset(measVarY, 0, sizeof(measVarY));
+    memset(measJerkX, 0, sizeof(measJerkX));
+    memset(measJerkY, 0, sizeof(measJerkY));
     measBinMin = dspBinMin();
     measBinCount = currentPsdBinCount();
     for (int k = measBinMin, i = 0; i < measBinCount; k++, i++) {
       measPsdX[i] = dspDualPsdX[k]; measPsdY[i] = dspDualPsdY[k];
       measVarX[i] = dspDualVarX[k]; measVarY[i] = dspDualVarY[k];
+      measJerkX[i] = dspJerkPsdX[k]; measJerkY[i] = dspJerkPsdY[k];
     }
     measPsdValid = true;
     saveMeasPsdToNVS();  // ????????????? ???
