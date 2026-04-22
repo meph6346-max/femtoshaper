@@ -103,6 +103,10 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .btn-out{background:none;color:var(--pri);border:1px solid rgba(33,150,243,.4)}
 .btn-wrn{background:var(--wrn);color:#fff}
 .btn-err{background:rgba(255,82,82,.15);color:var(--err);border:1px solid rgba(255,82,82,.3)}
+/* Success variant used by the calibration Save button (HTML class btn-suc
+ * previously had no matching CSS rule, so the button fell back to browser
+ * defaults and didn't match the app's button styling). */
+.btn-suc{background:var(--suc);color:#fff}
 .btn-sm{font-size:11px;padding:6px 10px}
 
 /* Printer profile bar */
