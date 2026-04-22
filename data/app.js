@@ -621,13 +621,28 @@ function loadResultFromESP() {
         }
         if (d.bgPsd && d.bgPsd.length > 0) { liveBgPsd = d.bgPsd; _bgPsdCache = d.bgPsd; }
       } catch(e) {
-        // ????ㅽ뙣 ???⑥텞 ?쒕룄
+        // P-07 (Codex follow-up): /api/psd fallback only returned Y-axis data,
+        // leaving realPsdX as demo data. Fill X=Y as single-axis fallback and warn user.
         try {
           const yRes = await fetch('/api/psd');
           const yD = await yRes.json();
-          if (yD.bins && yD.bins.length > 0) realPsdY = yD.bins.map(b => ({f:b.f, v:b.v}));
+          if (yD.bins && yD.bins.length > 0) {
+            const mapped = yD.bins.map(b => ({f:b.f, v:b.v, var: b.var || 0}));
+            realPsdY = mapped;
+            // X가 없었다면 동일 데이터로 채움 (demo 오염 방지)
+            if (!realPsdX || realPsdX.length === 0) realPsdX = mapped;
+            if (typeof appLog === 'function') {
+              appLog('logShaper', `<span class="log-ok">i</span> Single-axis PSD fallback (X=Y)`);
+            }
+          }
           if (yD.bgPsd && yD.bgPsd.length > 0) { liveBgPsd = yD.bgPsd; _bgPsdCache = yD.bgPsd; }
-        } catch(e2) {}
+        } catch(e2) {
+          if (typeof appLog === 'function') {
+            appLog('logShaper', `<span class="log-err">X</span> PSD restore failed: ${_escLog(e2.message)}`);
+          }
+        }
+      }
+catch(e2) {}
       }
 
       const pX = realPsdX || xPsdData;

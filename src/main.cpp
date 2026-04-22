@@ -666,7 +666,33 @@ void handlePostConfig() {
   if (doc["buildY"].is<int>())      cfg.buildY     = constrain(doc["buildY"].as<int>(), 30, 1000);
   if (doc["accel"].is<int>())       cfg.accel      = constrain(doc["accel"].as<int>(), 100, 50000);
   if (doc["feedrate"].is<int>())    cfg.feedrate   = constrain(doc["feedrate"].as<int>(), 10, 1000);
-  if (doc["sampleRate"].is<int>())  cfg.sampleRate = constrain(doc["sampleRate"].as<int>(), 400, 3200);
+  // P-05/P-06 (Codex follow-up): sampleRate 변경 시 캐시된 구(舊)-rate 데이터 무효화
+  // - measPsd (캡처 rate와 라벨 rate 불일치 방지)
+  // - dspBgPsd (bin 범위가 샘플레이트에 의존 - 기존 bg는 잘못된 주파수로 해석됨)
+  // - dspBgEnergy (sweep threshold 기준값)
+  if (doc["sampleRate"].is<int>()) {
+    int newSR = constrain(doc["sampleRate"].as<int>(), 400, 3200);
+    if (newSR != cfg.sampleRate) {
+      // 구 rate 데이터 전부 무효화
+      measPsdValid = false;
+      measBinMin = 0;
+      measBinCount = 0;
+      memset(measPsdX, 0, sizeof(measPsdX));
+      memset(measPsdY, 0, sizeof(measPsdY));
+      memset(measVarX, 0, sizeof(measVarX));
+      memset(measVarY, 0, sizeof(measVarY));
+      memset(measJerkX, 0, sizeof(measJerkX));
+      memset(measJerkY, 0, sizeof(measJerkY));
+      memset(dspBgPsd, 0, sizeof(dspBgPsd));
+      dspBgSegs = 0;
+      dspBgEnergy = 0;
+      bootNoiseDone = false;   // 부팅 노이즈 재캡처 트리거
+      bootNoiseSamples = 0;
+      Serial.printf("[CFG] sampleRate changed %d -> %d : measPsd/bgPsd invalidated, will recapture noise\n",
+                    cfg.sampleRate, newSR);
+      cfg.sampleRate = newSR;
+    }
+  }
   if (doc["kin"].is<const char*>()) strncpy(cfg.kin, doc["kin"] | "corexy", sizeof(cfg.kin)-1);
   if (doc["axesMap"].is<const char*>()) strncpy(cfg.axesMap, doc["axesMap"] | "xyz", sizeof(cfg.axesMap)-1);
   // v0.9: 筌?꼶?곲뇡??쟿??곷?揶쎛餓λ쵐??(JS ?袁???뽯퓠???袁⑸꽊)

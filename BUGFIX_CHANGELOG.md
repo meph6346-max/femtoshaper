@@ -998,3 +998,48 @@ Diminishing returns clearly observed: fix rate dropped from 43 to 17 to
 
 *Last updated: 2026-04-22 by Claude Code (claude-sonnet-4-6)*
 *Session branch: main (direct commits per user preference)*
+
+## Claude Review Follow-ups (Resolved)
+
+Codex review identified 3 bugs we missed. All verified as real and fixed.
+
+### [P-05 + P-06] SampleRate change leaves stale old-rate spectra
+
+- **File**: `src/main.cpp` handlePostConfig
+- **Severity**: HIGH
+- **Symptom**: Saved print PSD serialized with live `dspFreqRes()`. When user
+  changes `sampleRate` via POST /api/config, in-RAM `measPsd*`, `dspBgPsd`,
+  `dspBgEnergy`, and `measBin*` retained old-rate values. Subsequent
+  /api/psd?mode=print returned bins with WRONG frequency labels. bg
+  subtraction applied stale-rate spectra to new-rate signals.
+- **Root cause**: Earlier R10.1 fix cleared measPsd on NVS LOAD mismatch, but
+  did NOT handle the post-boot path where user changes sampleRate via POST.
+  `measPsdValid` stayed true, `dspBgPsd` unchanged.
+- **Fix**: Detect sampleRate change in handlePostConfig. If new != current:
+  - `measPsdValid = false`, zero measPsd/measVar/measJerk arrays
+  - `dspBgSegs = 0`, zero dspBgPsd
+  - `dspBgEnergy = 0`
+  - `bootNoiseDone = false`, `bootNoiseSamples = 0` → triggers re-capture
+  Logs: `sampleRate changed X -> Y : measPsd/bgPsd invalidated, will recapture noise`
+
+### [P-07] loadResultFromESP fallback leaves X as demo data
+
+- **File**: `data/app.js` ~line 623-629
+- **Severity**: MEDIUM
+- **Symptom**: When `/api/psd?mode=print` fetch failed, fallback fetched
+  `/api/psd` but only assigned to `realPsdY`. `realPsdX` stayed at previous
+  value - often `null`, then downstream fell back to `xPsdData` demo dataset.
+  User saw demo X data as if it were real.
+- **Fix**: Fallback now fills both `realPsdX = realPsdY = mapped` when X is
+  empty, with explicit log "Single-axis PSD fallback (X=Y)". Outer catch
+  block also logs failure (previously silent `catch(e2) {}`).
+
+### Lessons
+
+External reviewer found 3 genuine bugs after we had declared "diminishing
+returns" at 101 fixes. Codex's review angle (focus on incomplete
+invalidation chains, fallback paths) was complementary to our angles and
+caught real issues. Confirms the value of multi-reviewer workflow for
+critical-quality code.
+
+**Running total: 104 bugs fixed** (was 101 + these 3).
