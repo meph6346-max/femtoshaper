@@ -2092,3 +2092,40 @@ clean / design-choice. Running total **202 bugs fixed** across rounds
 1-51.
 
 ---
+
+## Rounds 52-71 — Second 20-scenario user-flow sweep (2026-04-22)
+
+See `BUGFIX_COMMENT_ABSORB_ROUND52-71.md`. Audited another 20 user-flow
+scenarios focusing on measurement data edge cases, shaper recommendation
+paths, and UI interactions:
+
+- sampleRate=400Hz overflow
+- X-only calibration rejection
+- flat spectrum / no-peak measurement
+- low-SNR signal
+- dual-balanced resonance
+- unknown resonanceMode fallback
+- asymmetric per-axis shaperType
+- firmware field applyCmd format
+- PSD saturation
+- print_stop → live mode fast toggle
+- demoMode runtime effect
+- window resize on hidden tab
+- Diagnostic Stage 2 with no measurement
+- Report generation during print
+- POST body size enforcement
+- Captive portal redirect loop
+- Negative calibration weights
+- peakFreq=0 analyzeShaper guard
+- detectPeaks MAX cap
+- Measurement-save concurrency
+
+**Result: 0 new functional bugs.** One Explore-sub-agent report
+(demoMode does not refetch PSD) was verified false positive — `demoMode`
+is a dead preference flag with no runtime branch anywhere in the code.
+
+Cumulative user-flow scan hit rate across R31+R32-51+R52-71:
+2 real bugs in 45 scenarios (4.4%) — trending to zero as coverage
+saturates. Running total **202 bugs fixed** across rounds 1-71.
+
+---
