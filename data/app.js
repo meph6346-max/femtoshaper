@@ -698,15 +698,19 @@ function initApp() {
   // Load the background PSD used for chart overlays and validation.
   function loadBgPsd(retryCount) {
     fetch('/api/noise').then(r=>r.json()).then(d=>{
-      if(d.valid && d.bins && d.bins.length>0){
+      if (d.valid && d.bins && d.bins.length > 0) {
         _bgPsdCache = d.bins.map(b=>b.v);
       } else if (retryCount < 3) {
-        // ?? ???3 ???? ?? setTimeout(() => loadBgPsd(retryCount + 1), 3000);
+        // Boot-noise capture may still be in progress. Retry up to 3 times
+        // with a 3 s gap. This branch was previously an absorbed-comment
+        // bug - the setTimeout call sat inside a `//` comment and never
+        // executed, so an invalid response never retried.
+        setTimeout(() => loadBgPsd(retryCount + 1), 3000);
       }
     }).catch(()=>{
       if (retryCount < 3) setTimeout(() => loadBgPsd(retryCount + 1), 3000);
     }).finally(()=>{
-      if (retryCount === 0) loadResultFromESP();  // ?? ??
+      if (retryCount === 0) loadResultFromESP();  // chain the stored-result restore to the first attempt only
     });
   }
   loadBgPsd(0);

@@ -8,6 +8,38 @@
 
 ---
 
+### 2026-04-22 round 18 (Claude Opus 4.7): absorbed-code bug found in JavaScript
+
+Chasing the chain back to where this whole investigation started.
+Rounds 1-8 recovered absorbed-code bugs in `src/main.cpp`. R18 finds
+the same class of bug in `data/app.js` - the early sweeps only
+audited C++.
+
+**Fixed (1):**
+
+- **MEDIUM**: `loadBgPsd` in `data/app.js` had
+  `} else if (retryCount < 3) { // ?? ???3 ???? ?? setTimeout(() => loadBgPsd(retryCount + 1), 3000); }`.
+  The Korean-to-English conversion corrupted the preceding comment into
+  question marks and inlined the setTimeout onto the same line, so
+  `//` absorbed the call. The "valid=false" retry path was silently
+  dead; boot-noise still-in-capture response would never retry, and
+  `_bgPsdCache` stayed null, disabling background subtraction in chart
+  overlays. Moved setTimeout onto its own line as real code with an
+  English comment.
+
+Lesson: when you find an absorbed-code bug in one language, re-run
+the scan against every other language in the repo. Earlier rounds
+only grep'd *.cpp / *.h.
+
+**Verification:**
+```
+node --check data/app.js      # pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND18.md`](./BUGFIX_COMMENT_ABSORB_ROUND18.md).
+
+**Running total:** 185 (before) + 1 = **186 bugs fixed**.
+
 ### 2026-04-22 round 17 (Claude Opus 4.7): tab-switch resource symmetry — 2 more bugs
 
 R16 was a handler-rewire pattern. R17 follows the same "resource A changed,
