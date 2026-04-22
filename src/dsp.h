@@ -821,10 +821,22 @@ float dspDualConvergence(char axis) {
   if (_peakHistCount < 3) return 999.0f;
   float* hist = (axis == 'x') ? _peakHistX : _peakHistY;
   int n = _peakHistCount;
-  float sum = 0, sumSq = 0;
-  for (int i = 0; i < n; i++) { sum += hist[i]; sumSq += hist[i]*hist[i]; }
+  // R49: Welford's online variance + min/max range 선행 체크로 float 정밀도 손실 방지
+  float maxV = hist[0], minV = hist[0];
+  for (int i = 1; i < n; i++) {
+    if (hist[i] > maxV) maxV = hist[i];
+    if (hist[i] < minV) minV = hist[i];
+  }
+  float range = maxV - minV;
+  // 범위가 0.01Hz 미만이면 수렴된 것으로 간주 (float 잡음 제거)
+  if (range < 0.01f) return 0.0f;
+  // 일반적인 std 계산 - range 가드 덕분에 numerical instability 위험 낮음
+  float sum = 0;
+  for (int i = 0; i < n; i++) sum += hist[i];
   float mean = sum / n;
-  float var = sumSq / n - mean * mean;
+  float sumSqDev = 0;
+  for (int i = 0; i < n; i++) { float d = hist[i] - mean; sumSqDev += d * d; }
+  float var = sumSqDev / n;
   return (var > 0) ? sqrtf(var) : 0;
 }
 

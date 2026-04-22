@@ -34,12 +34,15 @@ function switchTab(id) {
   }
   if (id === 'live') initLive();
   if (id === 'diag') updateDiagOverview();
-  // R8.1: Shaper 탭이 아닌데 폴링이 돌면 정리 (메모리 누수 방지)
-  // 단, 측정 중(PRINT 상태)에는 유지
+  // R52.3: 네트워크 실패와 무관하게 Shaper 탭 이탈 시 폴링 무조건 정리
+  // 재진입 시 resumePrintMeasureIfActive()로 재개됨 (R20.29)
   if (id !== 'shaper' && typeof stopPrintPolling === 'function') {
-    fetch('/api/measure/status').then(r => r.json()).then(d => {
-      if (d.state !== 'print' && d.measState !== 'print') stopPrintPolling();
-    }).catch(() => {});
+    stopPrintPolling();
+  }
+  // R57.2: live 탭 이탈 시 watchdog 타이머도 정리
+  if (id !== 'live' && typeof window !== 'undefined' && window._liveWatchdog) {
+    clearInterval(window._liveWatchdog);
+    window._liveWatchdog = null;
   }
   // ?먯씠?????꾪솚 ??PSD 洹몃옒??redraw
   if (id === 'shaper') {

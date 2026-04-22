@@ -949,11 +949,18 @@ async function scanWifi() {
     }
     // RSSI 순 정렬
     d.networks.sort((a, b) => b.rssi - a.rssi);
+    // R60.5: SSID HTML escape (악성 SSID 네트워크로부터 XSS 방지)
+    const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+    const escapeAttr = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     box.innerHTML = d.networks.map(n => {
       const bars = n.rssi > -50 ? '▓▓▓▓' : n.rssi > -65 ? '▓▓▓░' : n.rssi > -75 ? '▓▓░░' : '▓░░░';
       const lock = n.enc ? '🔒' : '';
-      return `<div class="wifi-item" onclick="selectWifi('${n.ssid.replace(/'/g,"\\'")}')" style="padding:8px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--bg3)">
-        <span>${lock} ${n.ssid}</span>
+      const safeSsid = escapeHtml(n.ssid);
+      const jsSafe = escapeAttr(n.ssid);
+      return `<div class="wifi-item" onclick="selectWifi('${jsSafe}')" style="padding:8px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--bg3)">
+        <span>${lock} ${safeSsid}</span>
         <span style="font-family:monospace;font-size:11px;color:var(--tx3)">${bars} ${n.rssi}dBm</span>
       </div>`;
     }).join('');

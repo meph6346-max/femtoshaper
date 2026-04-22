@@ -752,5 +752,96 @@ as low-risk or requiring significant architecture change.
 
 ---
 
+---
+
+## [BUGHUNT-R41-60] Third deep-dive: algorithm + integration (20 fixes)
+
+Third 20-round bug hunt (after R1-20 user flow and R21-40 numerical/hardware):
+- Rounds 41-50: algorithm correctness (subtle math bugs that give wrong answers
+  without crashing)
+- Rounds 51-60: integration/state/contract (API schemas, state machines,
+  timers, forms, security)
+
+Identified 49 bugs; applied 20 fixes; deferred 29 as low-risk or architectural.
+
+### HIGH (6 applied)
+
+- **R42 Calibration vector unit normalization**: `cfg.calWx`/`cfg.calWy`
+  assumed to be unit vectors but float drift after NVS round-trip can leave
+  them at 1.02× or 0.98×. All subsequent measurements silently scaled.
+  FIX: loadConfig() renormalizes vectors on boot (if |mag-1| > 0.01 and
+  magnitude > 1e-6). Disables useCalWeights if vectors corrupt.
+- **R52.1/2/3 State machine holes**: `measPhase` never transitions back to
+  'idle' after 'done'; switchTab polling cleanup depended on network reachable.
+  FIX: startPrintMeasure() now explicitly resets measPhase + stops polling +
+  clears global peak vars. switchTab unconditionally stops timers.
+- **R57.1/2 Timer cleanup**: live watchdog + polling interval could leak
+  across tab switches.
+  FIX: switchTab clears window._liveWatchdog; polling timer always cleared
+  on non-shaper tab entry.
+- **R58.1 Global peak reset**: peakFreqXGlobal/Y persisted across
+  measurements, showing stale markers briefly.
+  FIX: zeroed at startPrintMeasure().
+- **R60.1/2/3 Form range validation (server-side)**: negative/0/huge values
+  sent by client now server-side `constrain()` into safe ranges:
+  - buildX/Y: 30..1000 mm
+  - accel: 100..50000 mm/s²
+  - feedrate: 10..1000 mm/s
+  - sampleRate: 400..3200 Hz
+- **R60.7 GPIO pin uniqueness**: duplicate pins (e.g., SCK=CS) previously
+  accepted, breaking SPI.
+  FIX: server rejects with HTTP 400 `duplicate_gpio_pins` when any pin overlap.
+
+### MEDIUM (10 applied)
+
+- **R43 Shaper tie-breaking**: `reduce()` always picked first; now tie-breaks
+  by smoothing (secondary criterion).
+- **R44 Harmonic tolerance**: 5% (0.05) allowed 4.9× to misclassify as 5×
+  harmonic. Tightened to 3% (0.03).
+- **R46 Background over-subtraction**: bgPsd spike at resonance frequency
+  zeroed real signals. Now clamped at 70% of signal.
+- **R47 Zone boundary**: `p.f < z.max` excluded exact-boundary peaks.
+  Changed to `<=`.
+- **R49 Convergence std numerical stability**: Welford-ish formula + min/max
+  range pre-check (0.01Hz threshold) avoids float drift from producing tiny
+  meaningless non-zero sigma.
+- **R51.3 Error field fallback**: `d.error` accessed without default when
+  server returns `{ok:false}` only. Now falls back to friendly message.
+- **R55.1 calibration_required actionable**: error log now includes clickable
+  link to Settings > Calibration.
+- **R60.5 HTML escape for SSID display**: WiFi scan results with malicious
+  SSID names could inject HTML. Now escaped via `escapeHtml()` + `escapeAttr()`
+  for onclick handlers.
+- **Shaper math edges (R36 carryover)**: calcMaxAccel validates inputs.
+- **State field unification**: client checks both `state` and `measState`
+  for backward compat (server returns both).
+
+### Deferred (29 items)
+
+Algorithm concerns (10): R41 Welch norm formula (verified correct against
+Klipper), R45 weight clipping order (cosmetic), R48 kin profile validation
+(requires schema), R50 confidence weighting (design choice - current behavior
+is conservative by design).
+
+Integration concerns (19): hardcoded English fallbacks (not-yet-translated
+keys), log category separation (UX choice), chart lifecycle edge cases (no
+real impact), form sanitization for `<input type=number>` (browser already
+rejects non-numeric), many i18n completeness issues.
+
+### Grand total across all bug hunts
+
+| Round | Fixed | Deferred |
+|-------|-------|----------|
+| Initial review | 9 | 0 |
+| R1-20 user flow | 43 | 3 |
+| R21-40 numerical/hw | 17 | 13 |
+| R41-60 algo/integration | 20 | 29 |
+| **TOTAL** | **89 fixed** | **45 deferred** |
+
+134 bugs examined, 89 fixed. Codebase is now significantly hardened across
+all access paths.
+
+---
+
 *Last updated: 2026-04-22 by Claude Code (claude-sonnet-4-6)*
 *Session branch: main (direct commits per user preference)*

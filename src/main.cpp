@@ -496,12 +496,29 @@ void loadConfig() {
   dspMinValidSegs = cfg.minSegs;
   dspSetSampleRate((float)cfg.sampleRate);
   // R5.1/R18.24: 캘리브레이션 벡터가 기본값 [1,0,0]/[0,1,0]이면 강제로 useCalWeights=false
-  // (NVS 손상 시에도 안전: 저장된 useCalWeights=true 가 잘못된 캘리브로 측정되는 것 방지)
   bool isDefaultCal = (cfg.calWx[0] == 1.0f && cfg.calWx[1] == 0.0f && cfg.calWx[2] == 0.0f &&
                        cfg.calWy[0] == 0.0f && cfg.calWy[1] == 1.0f && cfg.calWy[2] == 0.0f);
   if (cfg.useCalWeights && isDefaultCal) {
     cfg.useCalWeights = false;
-    Serial.println("[CFG] useCalWeights=true with default vectors - forced to false (calibration not done)");
+    Serial.println("[CFG] useCalWeights=true with default vectors - forced to false");
+  }
+  // R42: Cal 벡터 단위 정규화 (저장 시 부동소수 드리프트로 magnitude가 1.0이 아닐 수 있음)
+  if (cfg.useCalWeights) {
+    float magX = sqrtf(cfg.calWx[0]*cfg.calWx[0] + cfg.calWx[1]*cfg.calWx[1] + cfg.calWx[2]*cfg.calWx[2]);
+    float magY = sqrtf(cfg.calWy[0]*cfg.calWy[0] + cfg.calWy[1]*cfg.calWy[1] + cfg.calWy[2]*cfg.calWy[2]);
+    if (magX > 1e-6f && fabsf(magX - 1.0f) > 0.01f) {
+      for (int i = 0; i < 3; i++) cfg.calWx[i] /= magX;
+      Serial.printf("[CFG] calWx renormalized (was mag=%.4f)\n", magX);
+    }
+    if (magY > 1e-6f && fabsf(magY - 1.0f) > 0.01f) {
+      for (int i = 0; i < 3; i++) cfg.calWy[i] /= magY;
+      Serial.printf("[CFG] calWy renormalized (was mag=%.4f)\n", magY);
+    }
+    // 만약 정규화 후에도 magnitude가 이상하면 useCalWeights 비활성화
+    if (magX < 1e-6f || magY < 1e-6f || !isfinite(magX) || !isfinite(magY)) {
+      cfg.useCalWeights = false;
+      Serial.println("[CFG] calWx/calWy invalid - useCalWeights disabled");
+    }
   }
   if (firstBoot) {
     Serial.println("[NVS] first boot - defaults loaded");
@@ -605,11 +622,12 @@ void handlePostConfig() {
     }
   }
 
-  if (doc["buildX"].is<int>())      cfg.buildX     = doc["buildX"];
-  if (doc["buildY"].is<int>())      cfg.buildY     = doc["buildY"];
-  if (doc["accel"].is<int>())       cfg.accel      = doc["accel"];
-  if (doc["feedrate"].is<int>())    cfg.feedrate   = doc["feedrate"];
-  if (doc["sampleRate"].is<int>())  cfg.sampleRate = doc["sampleRate"];
+  // R60.1/2/3: 숫자 필드 범위 검증 (음수/0/과도한 값 거부)
+  if (doc["buildX"].is<int>())      cfg.buildX     = constrain(doc["buildX"].as<int>(), 30, 1000);
+  if (doc["buildY"].is<int>())      cfg.buildY     = constrain(doc["buildY"].as<int>(), 30, 1000);
+  if (doc["accel"].is<int>())       cfg.accel      = constrain(doc["accel"].as<int>(), 100, 50000);
+  if (doc["feedrate"].is<int>())    cfg.feedrate   = constrain(doc["feedrate"].as<int>(), 10, 1000);
+  if (doc["sampleRate"].is<int>())  cfg.sampleRate = constrain(doc["sampleRate"].as<int>(), 400, 3200);
   if (doc["kin"].is<const char*>()) strncpy(cfg.kin, doc["kin"] | "corexy", sizeof(cfg.kin)-1);
   if (doc["axesMap"].is<const char*>()) strncpy(cfg.axesMap, doc["axesMap"] | "xyz", sizeof(cfg.axesMap)-1);
   // v0.9: 筌?꼶?곲뇡??쟿??곷?揶쎛餓λ쵐??(JS ?袁???뽯퓠???袁⑸꽊)
@@ -625,13 +643,27 @@ void handlePostConfig() {
   if (doc["firmware"].is<const char*>()) strncpy(cfg.firmware, doc["firmware"] | "marlin_is", sizeof(cfg.firmware)-1);
   if (doc["eepromSave"].is<bool>()) cfg.eepromSave = doc["eepromSave"];
   // GPIO ?? 獄쏄퀣??(????????怨몄뒠)
-  if (doc["pinSCK"].is<int>())   cfg.pinSCK   = doc["pinSCK"];
-  if (doc["pinMISO"].is<int>())  cfg.pinMISO  = doc["pinMISO"];
-  if (doc["pinMOSI"].is<int>())  cfg.pinMOSI  = doc["pinMOSI"];
-  if (doc["pinCS"].is<int>())    cfg.pinCS    = doc["pinCS"];
-  if (doc["pinINT1"].is<int>())  cfg.pinINT1  = doc["pinINT1"];
-  if (doc["pinLED"].is<int>())   cfg.pinLED   = doc["pinLED"];
-  if (doc["pinReset"].is<int>()) cfg.pinReset = doc["pinReset"];
+  // R60.7: GPIO 핀 일시 저장 후 중복 검증
+  int newSCK = doc["pinSCK"].is<int>()   ? doc["pinSCK"].as<int>()   : cfg.pinSCK;
+  int newMISO= doc["pinMISO"].is<int>()  ? doc["pinMISO"].as<int>()  : cfg.pinMISO;
+  int newMOSI= doc["pinMOSI"].is<int>()  ? doc["pinMOSI"].as<int>()  : cfg.pinMOSI;
+  int newCS  = doc["pinCS"].is<int>()    ? doc["pinCS"].as<int>()    : cfg.pinCS;
+  int newINT1= doc["pinINT1"].is<int>()  ? doc["pinINT1"].as<int>()  : cfg.pinINT1;
+  int newLED = doc["pinLED"].is<int>()   ? doc["pinLED"].as<int>()   : cfg.pinLED;
+  int newRst = doc["pinReset"].is<int>() ? doc["pinReset"].as<int>() : cfg.pinReset;
+  // 모든 핀이 서로 달라야 함 (ADXL SPI 버스 충돌 방지)
+  int pins[7] = { newSCK, newMISO, newMOSI, newCS, newINT1, newLED, newRst };
+  bool pinConflict = false;
+  for (int i = 0; i < 7; i++)
+    for (int j = i+1; j < 7; j++)
+      if (pins[i] == pins[j] && pins[i] >= 0) { pinConflict = true; break; }
+  if (pinConflict) {
+    server.send(400, "application/json",
+      "{\"ok\":false,\"error\":\"duplicate_gpio_pins\"}");
+    return;
+  }
+  cfg.pinSCK = newSCK; cfg.pinMISO = newMISO; cfg.pinMOSI = newMOSI;
+  cfg.pinCS = newCS; cfg.pinINT1 = newINT1; cfg.pinLED = newLED; cfg.pinReset = newRst;
   if (doc["txPower"].is<int>())  cfg.txPower  = doc["txPower"];
   if (doc["minSegs"].is<int>()) {
     cfg.minSegs = constrain(doc["minSegs"].as<int>(), 10, 500);

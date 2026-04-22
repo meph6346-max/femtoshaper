@@ -95,16 +95,26 @@ function appLog(id, html) {
 let printPollTimer = null;
 
 async function startPrintMeasure() {
+  // R52.1: 새 측정 시작 전 상태/전역 변수 명시적 리셋
+  measPhase = 'idle';
+  if (typeof stopPrintPolling === 'function') stopPrintPolling();
+  // R58.1: 이전 측정의 글로벌 피크 리셋 (stale 마커 표시 방지)
+  if (typeof window !== 'undefined') {
+    if (typeof peakFreqXGlobal !== 'undefined') window.peakFreqXGlobal = 0;
+    if (typeof peakFreqYGlobal !== 'undefined') window.peakFreqYGlobal = 0;
+  }
+
   // 캘리브레이션 체크
   try {
     const cfgRes = await fetch('/api/config');
     const cfg = await cfgRes.json();
     if (!cfg.useCalWeights) {
-      appLog('logShaper', `<span class="log-err">✗</span> ${t('pm_cal_required') || '축 캘리브레이션이 필요합니다. 설정에서 캘리브레이션을 실행하세요.'}`);
+      // R55.1: calibration_required 시 설정 탭으로 전환 안내
+      appLog('logShaper', `<span class="log-err">\u2717</span> ${t('pm_cal_required') || '축 캘리브레이션이 필요합니다.'} → <a href="#" onclick="switchTab('settings');return false;">설정 → 캘리브레이션</a>`);
       return;
     }
   } catch(e) {
-    appLog('logShaper', `<span class="log-err">✗</span> ${t('log_conn_err')}${e.message}`);
+    appLog('logShaper', `<span class="log-err">\u2717</span> ${t('log_conn_err') || 'Connection error: '}${e.message || 'unknown'}`);
     return;
   }
 
@@ -119,9 +129,12 @@ async function startPrintMeasure() {
     const d = await res.json();
     if (!d.ok) {
       if (d.error === 'calibration_required') {
-        appLog('logShaper', `<span class="log-err">✗</span> ${t('pm_cal_required') || '캘리브레이션 필요'}`);
+        appLog('logShaper', `<span class="log-err">\u2717</span> ${t('pm_cal_required') || '캘리브레이션 필요'}`);
+      } else if (d.error === 'cannot_change_sample_rate_during_measurement') {
+        appLog('logShaper', `<span class="log-err">\u2717</span> 측정 중에는 샘플레이트를 변경할 수 없습니다.`);
       } else {
-        appLog('logShaper', `<span class="log-err">✗</span> ${d.error}`);
+        // R51.3: error 필드 없어도 fallback
+        appLog('logShaper', `<span class="log-err">\u2717</span> ${d.error || 'ESP32 returned error without detail'}`);
       }
       return;
     }

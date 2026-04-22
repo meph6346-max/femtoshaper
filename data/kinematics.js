@@ -202,7 +202,8 @@ function getKinZoneMap(kin, axis) {
 function classifyKinPeakZones(peaks, kin, axis) {
   const zones = getKinZoneMap(kin, axis);
   return peaks.map(p => {
-    const zone = zones.find(z => p.f < z.max) || zones[zones.length - 1];
+    // R47: 경계값에서 낮은 zone에 포함 (40.0Hz는 belt(max=40)에 속함)
+    const zone = zones.find(z => p.f <= z.max) || zones[zones.length - 1];
     return { f: p.f, rel: p.rel || 0, zone: zone.zone, ko: zone.ko, en: zone.en, act_ko: zone.act_ko, act_en: zone.act_en };
   });
 }

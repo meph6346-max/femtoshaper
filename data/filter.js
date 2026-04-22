@@ -25,13 +25,16 @@ function filterByBackground(psd, bgPsd) {
 
   return psd.map(function(p) {
     if (p.f < filterFreqMin) return { f: p.f, v: 0, var: p.var || 0 };
-    // 배경 PSD 차감 (있으면)
     var bgV = 0;
     if (bgPsd && Array.isArray(bgPsd)) {
       var bgIdx = Math.round((p.f - filterFreqMin) / 3.125);
       if (bgIdx >= 0 && bgIdx < bgPsd.length) bgV = bgPsd[bgIdx] || 0;
     }
-    var v = Math.max(0, p.v - bgV);
+    // R46: 배경이 신호의 70% 이상을 차감하지 못하도록 clamp
+    // (배경 측정이 잡음을 과하게 포함했을 때 실제 공진까지 제거하는 것 방지)
+    var bgMax = p.v * 0.7;
+    var bgEffective = Math.min(bgV, bgMax);
+    var v = Math.max(0, p.v - bgEffective);
     return { f: p.f, v: v > threshold ? v : 0, var: p.var || 0 };
   });
 }
@@ -170,8 +173,9 @@ function detectPeaks(psd, opts) {
       if (selected[j].f < filterFreqMin) continue;
       var ratio = selected[i].f / selected[j].f, rounded = Math.round(ratio);
       if (rounded >= 2 && rounded <= 6) {
+        // R44: 5% 허용오차 → 3%로 강화 (4.9× 처럼 경계값이 오분류되던 문제)
         var err = Math.abs(ratio - rounded) / rounded;
-        if (err < 0.05 && err < bestErr) { bestErr = err; bestJ = j; bestR = rounded; }
+        if (err < 0.03 && err < bestErr) { bestErr = err; bestJ = j; bestR = rounded; }
       }
     }
     if (bestJ >= 0) {
