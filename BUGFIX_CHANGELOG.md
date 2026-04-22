@@ -1043,3 +1043,45 @@ caught real issues. Confirms the value of multi-reviewer workflow for
 critical-quality code.
 
 **Running total: 104 bugs fixed** (was 101 + these 3).
+
+### [P-05 follow-up] print restore now preserves capture-time sample rate
+
+- **File**: `src/main.cpp`
+- **Severity**: HIGH
+- **Symptom**: Saved print PSD was still emitted using live `dspFreqRes()`, so changing `sampleRate` after capture re-labeled restored bins with the wrong frequency axis.
+- **Fix**: Added `measSampleRate` metadata for saved print PSD and now serialize print-mode `freqRes` from the saved capture rate, not the live DSP rate.
+
+### [P-06 follow-up] sampleRate invalidation lines restored as executable code
+
+- **File**: `src/main.cpp`
+- **Severity**: HIGH
+- **Symptom**: `measPsdValid = false` and `bootNoiseSamples = 0` had been swallowed into comment-corrupted lines, leaving stale spectra active after sample-rate changes.
+- **Fix**: Restored both assignments as live statements and kept the invalidation path for cached measurement/background spectra active.
+
+### [P-07 regression] stray catch removed from loadResultFromESP
+
+- **File**: `data/app.js`
+- **Severity**: CRITICAL
+- **Symptom**: Extra `catch(e2) {}` after the fallback block made `app.js` fail syntax check and prevented the frontend from loading.
+- **Fix**: Removed the stray catch and kept only the intended inner fallback `try/catch`.
+
+### [P1 follow-up] save-result button flow restored after print_stop
+
+- **File**: `data/measure.js`
+- **Severity**: HIGH
+- **Symptom**: `savedFreqX` had been swallowed into a comment, so the successful `print_stop` path threw before `showSaveResultBtn()` could complete.
+- **Fix**: Restored the computed save frequencies as live variables passed into `showSaveResultBtn()`.
+
+### [P1 follow-up] boot noise capture no longer resets every idle loop
+
+- **File**: `src/main.cpp`
+- **Severity**: HIGH
+- **Symptom**: The `if (bootNoiseSamples == 0)` guard was comment-corrupted, so `dspReset()` ran every loop during boot noise capture.
+- **Fix**: Reinstated a live `if (bootNoiseSamples == 0)` guard so boot background PSD accumulation can stabilize normally.
+
+### [P1 follow-up] saved measurement restore no longer depends on current sampleRate
+
+- **File**: `src/main.cpp`
+- **Severity**: HIGH
+- **Symptom**: Restoring saved print PSD still required `savedSampleRate == cfg.sampleRate`, so valid saved measurements were discarded after later sample-rate changes.
+- **Fix**: Removed the current-rate gate for restored measurement PSD and rely on saved metadata (`measSampleRate`, `binMin`, `binCount`) for replay.

@@ -642,8 +642,6 @@ function loadResultFromESP() {
           }
         }
       }
-catch(e2) {}
-      }
 
       const pX = realPsdX || xPsdData;
       const pY = realPsdY || yPsdData;

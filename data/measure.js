@@ -183,8 +183,9 @@ async function stopPrintMeasure() {
 
     // 결과 저장
     const savedFreqX = xAnalysis?.recommended?.performance?.freq || d.peakX;
-    const savedFreqY = yAnalysis?.recommended?.performance?.freq || d.peakY;
-    showSaveResultBtn(savedFreqX, savedFreqY);
+    const savedFreqPerfX = xAnalysis?.recommended?.performance?.freq || d.peakX;
+    const savedFreqPerfY = yAnalysis?.recommended?.performance?.freq || d.peakY;
+    showSaveResultBtn(savedFreqPerfX, savedFreqPerfY);
 
   } catch(e) {
     // R9.1: stop 에러 시 사용자 컨텍스트 보존 - 'done' 유지하고 재시도 안내
