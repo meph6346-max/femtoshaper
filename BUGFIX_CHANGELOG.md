@@ -8,6 +8,42 @@
 
 ---
 
+### 2026-04-22 round 3 (Claude Opus 4.7): 4 more absorbed-code bugs + one hidden-by-runaway-string
+
+Paren-balance sweep showed `main.cpp` still had `+2` unmatched `(`. The
+previous handover had labelled this "harmless format-string parens" — wrong.
+A stack-based tokeniser pinpointed the `(` on line 1513 as the real offender:
+the `Serial.println("[DNS] ...)` string was **unterminated** — the closing
+`"` had been lost in a Korean → English conversion round-trip. That runaway
+string literal silently absorbed `}` on 1514 and `if (staConnected) {` on
+1517, which in turn papered over a separate `});` absorption on the
+`server.on("/success.txt", ...)` handler.
+
+**Found and fixed (4 more absorbed-code bugs):**
+
+- line 1186: `dspResetDual();` swallowed into the `print_start` comment —
+  stale dual-axis PSD bled from live mode into print capture.
+- line 1304: `static unsigned long lastActivityMs = 0;` swallowed into the
+  `#define DEEP_SLEEP_TIMEOUT_MS` trailing comment — referenced at 3 sites,
+  compile failure.
+- line 1513: unterminated string literal in `Serial.println("[DNS] ...)`
+  (missing closing `"`). Parser consumed ~5 lines of real code.
+- line 1613: `});` closing tokens of the `/success.txt` lambda absorbed
+  into the Firefox probe comment — `server.on()` never terminated,
+  downstream handlers registered inside the wrong lambda.
+
+**Verification:**
+```
+before: braces 248/248 [+0], parens 1395/1393 [+2]  MISMATCH
+after:  braces 250/250 [+0], parens 1402/1402 [+0]  OK
+```
+
+**Full write-up:** see [`BUGFIX_COMMENT_ABSORB_ROUND3.md`](./BUGFIX_COMMENT_ABSORB_ROUND3.md)
+for per-bug detail, the detection workflow, and the awk stack-walk snippet
+to reuse on the next pass.
+
+**Running total:** 124 (before) + 4 = **128 bugs fixed**.
+
 ### 2026-04-22 follow-up (Claude): 7 more absorbed-code bugs recovered after Codex's round
 
 After Codex fixed `if (dspDualNewSeg)` and `if (liveSSEClient.connected())`
