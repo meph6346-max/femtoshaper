@@ -457,13 +457,15 @@ function loadResultFromESP() {
         if (d.binsX && d.binsX.length > 0) {
           realPsdX = d.binsX.map(b => typeof b === 'object' ? b : null).filter(Boolean);
           if (realPsdX.length === 0) {
-            // flat array ?뺤떇 ??{f,v} 蹂??            realPsdX = d.binsX.map((v, i) => ({f: (i + 6) * (d.freqRes || 3.125), v: typeof v === 'number' ? v : v.v || 0}));
+            const binMin = Number.isFinite(d.binMin) ? d.binMin : 6;
+            realPsdX = d.binsX.map((v, i) => ({f: (i + binMin) * (d.freqRes || 3.125), v: typeof v === 'number' ? v : v.v || 0}));
           }
         }
         if (d.binsY && d.binsY.length > 0) {
           realPsdY = d.binsY.map(b => typeof b === 'object' ? b : null).filter(Boolean);
           if (realPsdY.length === 0) {
-            realPsdY = d.binsY.map((v, i) => ({f: (i + 6) * (d.freqRes || 3.125), v: typeof v === 'number' ? v : v.v || 0}));
+            const binMin = Number.isFinite(d.binMin) ? d.binMin : 6;
+            realPsdY = d.binsY.map((v, i) => ({f: (i + binMin) * (d.freqRes || 3.125), v: typeof v === 'number' ? v : v.v || 0}));
           }
         }
         if (d.bgPsd && d.bgPsd.length > 0) { liveBgPsd = d.bgPsd; _bgPsdCache = d.bgPsd; }

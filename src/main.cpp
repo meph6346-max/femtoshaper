@@ -1,20 +1,20 @@
 // ============================================================
 // FEMTO SHAPER ESP32-C3 Firmware v0.8
-// 버그 수정 목록:
-//   1. CS pinMode를 SPI.begin() 이전에 설정 (글리치 방지)
-//   2. FIFO bypass→stream 전환 시 리셋 추가
-//   3. GPIO0 INT1: INPUT_PULLUP 적용 (부트핀 안정성)
-//   4. adxl_test.js 라우트 추가
-//   5. 함수명 handleSaveBelt/LoadBelt 통일
-//   6. adxlFifoReady ISR에서만 쓰기 (경쟁조건 제거)
-//   7. INT_SOURCE 클리어 후 ISR 등록
+// 甕곌쑨????륁젟 筌뤴뫖以?
+//   1. CS pinMode??SPI.begin() ??곸읈????쇱젟 (疫꼲?귐딇뒄 獄쎻뫗?)
+//   2. FIFO bypass?萸쯶ream ?袁れ넎 ???귐딅??곕떽?
+//   3. GPIO0 INT1: INPUT_PULLUP ?怨몄뒠 (?봔?紐? ??됱젟??
+//   4. adxl_test.js ??깆뒭???곕떽?
+//   5. ??λ땾筌?handleSaveBelt/LoadBelt ???뵬
+//   6. adxlFifoReady ISR?癒?퐣筌??怨뚮┛ (野껋럩?녘?怨뚭탷 ??볤탢)
+//   7. INT_SOURCE ???????ISR ?源낆쨯
 //
-// 확정 배선 (납땜):
-//   SCL → GPIO4 (SCK/MISO)
-//   SDO → GPIO2 (MISO)
-//   SDA → GPIO3 (MOSI)
-//   CS  → GPIO1
-//   INT1→ GPIO0
+// ?類ㅼ젟 獄쏄퀣苑?(??몃립):
+//   SCL ??GPIO4 (SCK/MISO)
+//   SDO ??GPIO2 (MISO)
+//   SDA ??GPIO3 (MOSI)
+//   CS  ??GPIO1
+//   INT1??GPIO0
 // ============================================================
 
 #include <Arduino.h>
@@ -36,12 +36,12 @@ const IPAddress AP_IP(192, 168, 4, 1);
 
 WebServer   server(80);
 
-// v0.9: String 제거 — 공유 JSON 응답 버퍼 (힙 단편화 방지)
-static char _jbuf[8192];  // v1.0: 듀얼 PSD (binsX+binsY+bgPsd) ~6.2KB
+// v0.9: String ??볤탢 ???⑤벊? JSON ?臾먮뼗 甕곌쑵??(?????젶??獄쎻뫗?)
+static char _jbuf[8192];  // v1.0: ????PSD (binsX+binsY+bgPsd) ~6.2KB
 inline void sendJson(JsonDocument& doc) {
   size_t len = serializeJson(doc, _jbuf, sizeof(_jbuf));
   if (len >= sizeof(_jbuf)) {
-    // 버퍼 오버플로우 — 잘린 JSON 대신 에러 반환
+    // 甕곌쑵????살쒔???쨮??????롡뵛 JSON ?????癒?쑎 獄쏆꼹??
     server.send(500, "application/json", "{\"ok\":false,\"err\":\"JSON too large\"}");
     return;
   }
@@ -50,7 +50,7 @@ inline void sendJson(JsonDocument& doc) {
 DNSServer   dnsServer;
 Preferences prefs;
 
-// ── Config (전역 — 모든 함수에서 사용) ──────────────
+// ???? Config (?袁⑸열 ??筌뤴뫀諭???λ땾?癒?퐣 ???? ????????????????????????????
 struct Config {
   int    buildX = 120, buildY = 120, accel = 3000, feedrate = 200, sampleRate = 3200;
   char kin[16] = "corexy"; char axesMap[8] = "xyz"; char firmware[20] = "marlin_is";
@@ -62,21 +62,21 @@ struct Config {
   int    pinSCK = 9, pinMISO = 1, pinMOSI = 0, pinCS = 4, pinINT1 = 3, pinLED = 8, pinReset = 10;
   int    txPower = 8;
   int    minSegs = 256;
-  // v0.9: 축 캘리브레이션 가중치 (벡터 투영)
+  // v0.9: ??筌?꼶?곲뇡??쟿??곷?揶쎛餓λ쵐??(甕겸돧苑?????
   // printerX = calWx[0]*ax + calWx[1]*ay + calWx[2]*az
-  float  calWx[3] = {1, 0, 0};  // 기본: ADXL X → 프린터 X
-  float  calWy[3] = {0, 1, 0};  // 기본: ADXL Y → 프린터 Y
+  float  calWx[3] = {1, 0, 0};  // 疫꿸퀡?? ADXL X ???袁ⓥ뵛??X
+  float  calWy[3] = {0, 1, 0};  // 疫꿸퀡?? ADXL Y ???袁ⓥ뵛??Y
   bool   useCalWeights = false;
-  // v0.9: WiFi STA 모드
+  // v0.9: WiFi STA 筌뤴뫀諭?
   char wifiMode[8] = "ap";
   char staSSID[33] = "";
   char staPass[65] = "";
-  char hostname[32] = "femto";  // v1.0: mDNS 호스트명 (hostname.local)
-  int    powerHz  = 60;  // 전원 주파수 (60/50/0)
-  int    liveSegs = 2;   // 라이브 SSE 전송 주기 (세그먼트)
+  char hostname[32] = "femto";  // v1.0: mDNS ?紐꾨뮞?紐껋구 (hostname.local)
+  int    powerHz  = 60;  // ?袁⑹뜚 雅뚯눛???(60/50/0)
+  int    liveSegs = 2;   // ??깆뵠??SSE ?袁⑸꽊 雅뚯눊由?(?硫몃젃?믪눛??
 } cfg;
 
-// ── LED (Active Low, GPIO8 = BUILTIN LED) ───────────
+// ???? LED (Active Low, GPIO8 = BUILTIN LED) ??????????????????????
 #define LED_PIN 8
 enum LedState { LED_OFF, LED_ON, LED_BLINK };
 LedState      ledState    = LED_OFF;
@@ -97,18 +97,18 @@ void updateLed() {
   }
 }
 
-// ══════════════════════════════════════════════════════
-// ADXL345 드라이버
-// ══════════════════════════════════════════════════════
+// ?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름
+// ADXL345 ??뺤뵬??苡?
+// ?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름
 
-// ── 확정 핀 배선 ────────────────────────────────────
-#define ADXL_SCK   4   // GPIO4 = SCK  (SCL선)
-#define ADXL_MISO  2   // GPIO2 = MISO (SDO선)
-#define ADXL_MOSI  3   // GPIO3 = MOSI (SDA선)
+// ???? ?類ㅼ젟 ?? 獄쏄퀣苑?????????????????????????????????????????????????????????????????????????
+#define ADXL_SCK   4   // GPIO4 = SCK  (SCL??
+#define ADXL_MISO  2   // GPIO2 = MISO (SDO??
+#define ADXL_MOSI  3   // GPIO3 = MOSI (SDA??
 #define ADXL_CS    1   // GPIO1 = CS
-#define ADXL_INT1  0   // GPIO0 = INT1 (RISING만 사용)
+#define ADXL_INT1  0   // GPIO0 = INT1 (RISING筌?????
 
-// ── 레지스터 주소 ────────────────────────────────────
+// ???? ?????쎄숲 雅뚯눘??????????????????????????????????????????????????????????????????????????
 #define REG_DEVID       0x00
 #define REG_BW_RATE     0x2C
 #define REG_POWER_CTL   0x2D
@@ -123,10 +123,10 @@ void updateLed() {
 #define SPI_READ  0x80
 #define SPI_MULTI 0x40
 
-// ── 샘플 구조체 ─────────────────────────────────────
+// ???? ??묐탣 ?닌듼쒙㎗???????????????????????????????????????????????????????????????????????????
 struct AdxlSample { int16_t x, y, z; };
 
-// ── 상태 변수 ───────────────────────────────────────
+// ???? ?怨밴묶 癰궰????????????????????????????????????????????????????????????????????????????????
 static bool    adxlOK    = false;
 static bool    bootNoiseDone = false;
 static int     bootNoiseSamples = 0;
@@ -137,20 +137,20 @@ static AdxlSample adxlBuf[ADXL_BUF_SIZE];
 static uint8_t    adxlHead  = 0;
 static uint8_t    adxlCount = 0;
 
-static volatile bool adxlFifoReady = false;  // ISR에서만 쓰기
+static volatile bool adxlFifoReady = false;  // ISR?癒?퐣筌??怨뚮┛
 
-// 샘플레이트 측정
+// ??묐탣??됱뵠??筌β돦??
 static uint32_t adxlRateSamples   = 0;
 static uint32_t adxlRateStart     = 0;
 static float    adxlRateHz        = 0.0f;
 static bool     adxlRateMeasuring = false;
 
-// ── ISR ──────────────────────────────────────────────
+// ???? ISR ????????????????????????????????????????????????????????????????????????????????????????????
 void IRAM_ATTR adxlISR() {
   adxlFifoReady = true;
 }
 
-// ── SPI R/W ─────────────────────────────────────────
+// ???? SPI R/W ??????????????????????????????????????????????????????????????????????????????????
 static uint8_t spiRead(uint8_t reg) {
   digitalWrite(cfg.pinCS, LOW);
   SPI.transfer(reg | SPI_READ);
@@ -177,31 +177,28 @@ static void spiReadXYZ(int16_t &x, int16_t &y, int16_t &z) {
   z = (int16_t)((b[5] << 8) | b[4]);
 }
 
-// ── 초기화 ──────────────────────────────────────────
+// ???? ?λ뜃由??????????????????????????????????????????????????????????????????????????????????????
 bool adxlInit() {
-  Serial.printf("[ADXL] 핀: SCK=%d MISO=%d MOSI=%d CS=%d INT1=%d\n",
+  Serial.printf("[ADXL] ??: SCK=%d MISO=%d MOSI=%d CS=%d INT1=%d\n",
     cfg.pinSCK, cfg.pinMISO, cfg.pinMOSI, cfg.pinCS, cfg.pinINT1);
 
-  // CS를 먼저 HIGH로 (SPI 비활성 상태)
+  // CS???믪눘? HIGH嚥?(SPI ??쑵????怨밴묶)
   pinMode(cfg.pinCS, OUTPUT);
   digitalWrite(cfg.pinCS, HIGH);
   delay(10);
 
-  // SPI 시작 — SS=-1로 수동 CS 전용
-  SPI.end();  // 혹시 이전 상태 클리어
-  SPI.begin(cfg.pinSCK, cfg.pinMISO, cfg.pinMOSI, -1);
-  SPI.setFrequency(1000000);  // 초기화 시 1MHz (안정성 우선)
+  // SPI ??뽰삂 ??SS=-1嚥???롫짗 CS ?袁⑹뒠
+  SPI.end();  // ?諭????곸읈 ?怨밴묶 ?????  SPI.begin(cfg.pinSCK, cfg.pinMISO, cfg.pinMOSI, -1);
+  SPI.setFrequency(1000000);  // ?λ뜃由????1MHz (??됱젟???怨쀪퐨)
   SPI.setDataMode(SPI_MODE3);
-  delay(50);  // SPI 안정화 대기
-
-  // INT1 핀 설정
+  delay(50);  // SPI ??됱젟????疫?
+  // INT1 ?? ??쇱젟
   pinMode(cfg.pinINT1, INPUT_PULLUP);
   delay(10);
 
-  // DevID 읽기 — 3회 재시도
-  adxlDevId = 0;
+  // DevID ??꾨┛ ??3???????  adxlDevId = 0;
   for (int attempt = 1; attempt <= 3; attempt++) {
-    // CS 토글로 ADXL345 SPI 상태 리셋
+    // CS ?醫?嚥?ADXL345 SPI ?怨밴묶 ?귐딅?
     digitalWrite(cfg.pinCS, HIGH);
     delay(5);
     digitalWrite(cfg.pinCS, LOW);
@@ -210,7 +207,7 @@ bool adxlInit() {
     delay(5);
 
     adxlDevId = spiRead(REG_DEVID);
-    Serial.printf("[ADXL] 시도 %d/3: DevID=0x%02X %s\n",
+    Serial.printf("[ADXL] ??뺣즲 %d/3: DevID=0x%02X %s\n",
       attempt, adxlDevId, adxlDevId == 0xE5 ? "OK" : "FAIL");
 
     if (adxlDevId == 0xE5) break;
@@ -218,53 +215,50 @@ bool adxlInit() {
   }
 
   if (adxlDevId != 0xE5) {
-    Serial.println("[ADXL] 초기화 실패 — 배선 확인:");
-    Serial.printf("  SCK→GPIO%d  MISO→GPIO%d  MOSI→GPIO%d  CS→GPIO%d\n",
+    Serial.println("[ADXL] ?λ뜃由????쎈솭 ??獄쏄퀣苑??類ㅼ뵥:");
+    Serial.printf("  SCK?臾캰IO%d  MISO?臾캰IO%d  MOSI?臾캰IO%d  CS?臾캰IO%d\n",
       cfg.pinSCK, cfg.pinMISO, cfg.pinMOSI, cfg.pinCS);
     return false;
   }
 
-  // SPI 속도를 5MHz로 올림 (정상 통신 속도)
+  // SPI ??얜즲??5MHz嚥?????(?類ㅺ맒 ???뻿 ??얜즲)
   SPI.setFrequency(5000000);
 
   spiWrite(REG_POWER_CTL, 0x00);  // Standby
   delay(5);
 
-  // BW_RATE: Settings sampleRate → ADXL BW_RATE 레지스터 매핑
-  uint8_t bwRate = 0x0F; // 기본 3200Hz
+  // BW_RATE: Settings sampleRate ??ADXL BW_RATE ?????쎄숲 筌띲끋釉?
+  uint8_t bwRate = 0x0F; // 疫꿸퀡??3200Hz
   if      (cfg.sampleRate <= 400)  bwRate = 0x0C;
   else if (cfg.sampleRate <= 800)  bwRate = 0x0D;
   else if (cfg.sampleRate <= 1600) bwRate = 0x0E;
   else                             bwRate = 0x0F;
   spiWrite(REG_BW_RATE, bwRate);
   Serial.printf("[ADXL] BW_RATE=0x%02X (%dHz)\n", bwRate, cfg.sampleRate);
-  spiWrite(REG_DATA_FORMAT, 0x08);  // Full Res, ±2g
+  spiWrite(REG_DATA_FORMAT, 0x08);  // Full Res, 吏?g
 
-  // FIFO: bypass → stream (리셋)
+  // FIFO: bypass ??stream (?귐딅?
   spiWrite(REG_FIFO_CTL, 0x00);  // bypass
   delay(1);
   spiWrite(REG_FIFO_CTL, 0x99);  // Stream + WM=25
 
-  spiWrite(REG_INT_MAP,    0x00);  // 모두 INT1
-  spiWrite(REG_INT_ENABLE, 0x02);  // 워터마크 활성화
-
-  // ISR 등록 전 INT_SOURCE 클리어
-  spiRead(REG_INT_SOURCE);
+  spiWrite(REG_INT_MAP,    0x00);  // 筌뤴뫀紐?INT1
+  spiWrite(REG_INT_ENABLE, 0x02);  // ??곌숲筌띾뜇寃???뽮쉐??
+  // ISR ?源낆쨯 ??INT_SOURCE ?????  spiRead(REG_INT_SOURCE);
 
   attachInterrupt(digitalPinToInterrupt(cfg.pinINT1), adxlISR, RISING);
 
   spiWrite(REG_POWER_CTL, 0x08);  // Measurement ON
   delay(5);
 
-  // 검증: 데이터 레지스터 읽기 테스트
-  int16_t tx, ty, tz;
+  // 野꺜筌? ?怨쀬뵠???????쎄숲 ??꾨┛ ???뮞??  int16_t tx, ty, tz;
   spiReadXYZ(tx, ty, tz);
-  Serial.printf("[ADXL] 초기 데이터: X=%d Y=%d Z=%d\n", tx, ty, tz);
-  Serial.printf("[ADXL] 초기화 완료: %dHz / ±2g FR / Stream(WM=25)\n", cfg.sampleRate);
+  Serial.printf("[ADXL] ?λ뜃由??怨쀬뵠?? X=%d Y=%d Z=%d\n", tx, ty, tz);
+  Serial.printf("[ADXL] ?λ뜃由???袁⑥┷: %dHz / 吏?g FR / Stream(WM=25)\n", cfg.sampleRate);
   return true;
 }
 
-// ── FIFO 드레인 ──────────────────────────────────────
+// ???? FIFO ??뺤쟿??????????????????????????????????????????????????????????????????????????????
 static void adxlDrainFifo() {
   uint8_t hwCnt = spiRead(REG_FIFO_STATUS) & 0x3F;
   for (uint8_t i = 0; i < hwCnt; i++) {
@@ -282,14 +276,13 @@ static void adxlDrainFifo() {
 }
 
 static void adxlUpdate() {
-  // GPIO0 ISR 불안정 대비: FIFO STATUS 레지스터 직접 폴링
-  // ISR이 작동하면 빠르게, 안 하면 폴링으로 폴백
+  // GPIO0 ISR ?븍뜆釉?????? FIFO STATUS ?????쎄숲 筌욊낯????彛?
+  // ISR???臾먮짗??롢늺 ??쥓?ㅵ칰? ????롢늺 ??彛??곗쨮 ??媛?
   if (adxlFifoReady) {
     adxlFifoReady = false;
     adxlDrainFifo();
   } else {
-    // 폴링: FIFO에 워터마크(25) 이상 쌓였으면 드레인
-    uint8_t entries = spiRead(REG_FIFO_STATUS) & 0x3F;
+    // ??彛? FIFO????곌숲筌띾뜇寃?25) ??곴맒 ?蹂???겹늺 ??뺤쟿??    uint8_t entries = spiRead(REG_FIFO_STATUS) & 0x3F;
     if (entries >= 25) {
       adxlDrainFifo();
     }
@@ -305,11 +298,11 @@ static AdxlSample adxlLatest() {
   return adxlBuf[(adxlHead + adxlCount - 1) % ADXL_BUF_SIZE];
 }
 
-// ══════════════════════════════════════════════════════
+// ?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름
 // ADXL API
-// ══════════════════════════════════════════════════════
+// ?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름
 
-// ── 디버그 설정 API ────────────────────────────────────
+// ???? ?遺얠쒔域???쇱젟 API ????????????????????????????????????????????????????????????????????????
 void handleDebugGet() {
   JsonDocument doc;
   doc["minValidSegs"] = dspMinValidSegs;
@@ -360,7 +353,7 @@ void handleAdxlRaw() {
     doc["ok"] = false; doc["error"] = "ADXL not initialized";
     sendJson(doc); return;
   }
-  // ISR 우회: SPI에서 직접 최신 XYZ 읽기
+  // ISR ?怨좎돳: SPI?癒?퐣 筌욊낯??筌ㅼ뮇??XYZ ??꾨┛
   int16_t rx, ry, rz;
   spiReadXYZ(rx, ry, rz);
   float ax = toMs2(rx), ay = toMs2(ry), az = toMs2(rz);
@@ -377,7 +370,7 @@ void handleAdxlRaw() {
 void handleAdxlRate() {
   if (server.method() == HTTP_POST) {
     adxlRateSamples = 0; adxlRateStart = millis(); adxlRateMeasuring = true;
-    server.send(200, "application/json", "{\"ok\":true,\"msg\":\"측정 시작\"}");
+    server.send(200, "application/json", "{\"ok\":true,\"msg\":\"筌β돦????뽰삂\"}");
     return;
   }
   JsonDocument doc;
@@ -411,25 +404,23 @@ void handleAdxlFifo() {
   sendJson(doc);
 }
 
-// ══════════════════════════════════════════════════════
+// ?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름
 // Config
-// ══════════════════════════════════════════════════════
-// Config는 파일 상단에 선언됨
-void saveConfig();  // 전방 선언 (loadConfig에서 첫 부팅 시 호출)
+// ?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름?癒λ름
+// Config?????뵬 ?怨룸뼊???醫롫섧??void saveConfig();  // ?袁④컩 ?醫롫섧 (loadConfig?癒?퐣 筌??봔?????紐꾪뀱)
 
 void loadConfig() {
-  // 첫 부팅 감지: NVS에 "femto" 네임스페이스가 없으면 기본값 저장
-  bool firstBoot = false;
-  if (!prefs.begin("femto", true)) {  // read-only로 열어서 존재 확인
+  // 筌??봔??揶쏅Ŋ?: NVS??"femto" ??쇱뿫??쎈읂??곷뮞揶쎛 ??곸몵筌?疫꿸퀡??첎?????  bool firstBoot = false;
+  if (!prefs.begin("femto", true)) {  // read-only嚥???곷선??鈺곕똻???類ㅼ뵥
     prefs.end();
     firstBoot = true;
-    Serial.println("[NVS] 첫 부팅 — 기본 설정 저장");
-    saveConfig();  // 기본값으로 NVS 생성
+    Serial.println("[NVS] 筌??봔????疫꿸퀡????쇱젟 ????);
+    saveConfig();  // 疫꿸퀡??첎誘れ몵嚥?NVS ??밴쉐
   } else {
     prefs.end();
   }
 
-  // 정상 로드
+  // ?類ㅺ맒 嚥≪뮆諭?
   prefs.begin("femto", false);
   cfg.buildX     = prefs.getInt("buildX",    cfg.buildX);
   cfg.buildY     = prefs.getInt("buildY",    cfg.buildY);
@@ -438,7 +429,7 @@ void loadConfig() {
   cfg.sampleRate = prefs.getInt("sampleRate",cfg.sampleRate);
   prefs.getString("kin", cfg.kin, sizeof(cfg.kin));
   prefs.getString("axesMap", cfg.axesMap, sizeof(cfg.axesMap));
-  // v0.9: 캘리브레이션 가중치 로드
+  // v0.9: 筌?꼶?곲뇡??쟿??곷?揶쎛餓λ쵐??嚥≪뮆諭?
   cfg.useCalWeights = prefs.getBool("useCal", false);
   cfg.calWx[0] = prefs.getFloat("cwx0", 1); cfg.calWx[1] = prefs.getFloat("cwx1", 0); cfg.calWx[2] = prefs.getFloat("cwx2", 0);
   cfg.calWy[0] = prefs.getFloat("cwy0", 0); cfg.calWy[1] = prefs.getFloat("cwy1", 1); cfg.calWy[2] = prefs.getFloat("cwy2", 0);
@@ -468,13 +459,12 @@ void loadConfig() {
   if (cfg.liveSegs > 10) cfg.liveSegs = 10;
   prefs.end();
 
-  // DSP 엔진에 minSegs 동기화
-  dspMinValidSegs = cfg.minSegs;
+  // DSP ?遺우춭??minSegs ??녿┛??  dspMinValidSegs = cfg.minSegs;
 
   dspMinValidSegs = cfg.minSegs;
   dspSetSampleRate((float)cfg.sampleRate);
   if (firstBoot) {
-    Serial.println("[NVS] 기본값 로드 완료");
+    Serial.println("[NVS] 疫꿸퀡??첎?嚥≪뮆諭??袁⑥┷");
   }
   Serial.printf("[CFG] %dx%d accel=%d scv=%.1f fw=%s\n",
     cfg.buildX, cfg.buildY, cfg.accel, cfg.scv, cfg.firmware);
@@ -539,7 +529,7 @@ void handleGetConfig() {
   doc["minSegs"]=cfg.minSegs;
   doc["wifiMode"]=cfg.wifiMode; doc["staSSID"]=cfg.staSSID;
   doc["hostname"]=cfg.hostname;
-  // 현재 WiFi 상태
+  // ?袁⑹삺 WiFi ?怨밴묶
   doc["wifiConnected"]=(WiFi.status()==WL_CONNECTED);
   doc["wifiIP"]= (WiFi.status()==WL_CONNECTED) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   doc["wifiActiveMode"]= (WiFi.status()==WL_CONNECTED) ? "sta" : "ap";
@@ -563,20 +553,19 @@ void handlePostConfig() {
   if (doc["sampleRate"].is<int>())  cfg.sampleRate = doc["sampleRate"];
   if (doc["kin"].is<const char*>()) strncpy(cfg.kin, doc["kin"] | "corexy", sizeof(cfg.kin)-1);
   if (doc["axesMap"].is<const char*>()) strncpy(cfg.axesMap, doc["axesMap"] | "xyz", sizeof(cfg.axesMap)-1);
-  // v0.9: 캘리브레이션 가중치 (JS 위저드에서 전송)
+  // v0.9: 筌?꼶?곲뇡??쟿??곷?揶쎛餓λ쵐??(JS ?袁???뽯퓠???袁⑸꽊)
   if (doc["calWx"].is<JsonArray>() && doc["calWx"].size() == 3) {
     cfg.calWx[0] = doc["calWx"][0]; cfg.calWx[1] = doc["calWx"][1]; cfg.calWx[2] = doc["calWx"][2];
     cfg.calWy[0] = doc["calWy"][0]; cfg.calWy[1] = doc["calWy"][1]; cfg.calWy[2] = doc["calWy"][2];
     cfg.useCalWeights = true;
   }
-  // Phase 5: SCV / damping / targetSm 저장
-  if (doc["scv"].is<float>())      cfg.scv        = doc["scv"].as<float>();
+  // Phase 5: SCV / damping / targetSm ????  if (doc["scv"].is<float>())      cfg.scv        = doc["scv"].as<float>();
   if (doc["damping"].is<float>())  cfg.damping    = doc["damping"].as<float>();
   if (doc["targetSm"].is<float>()) cfg.targetSm   = doc["targetSm"].as<float>();
   if (doc["demoMode"].is<bool>())  cfg.demoMode   = doc["demoMode"].as<bool>();
   if (doc["firmware"].is<const char*>()) strncpy(cfg.firmware, doc["firmware"] | "marlin_is", sizeof(cfg.firmware)-1);
   if (doc["eepromSave"].is<bool>()) cfg.eepromSave = doc["eepromSave"];
-  // GPIO 핀 배정 (재시작 후 적용)
+  // GPIO ?? 獄쏄퀣??(????????怨몄뒠)
   if (doc["pinSCK"].is<int>())   cfg.pinSCK   = doc["pinSCK"];
   if (doc["pinMISO"].is<int>())  cfg.pinMISO  = doc["pinMISO"];
   if (doc["pinMOSI"].is<int>())  cfg.pinMOSI  = doc["pinMOSI"];
@@ -587,14 +576,14 @@ void handlePostConfig() {
   if (doc["txPower"].is<int>())  cfg.txPower  = doc["txPower"];
   if (doc["minSegs"].is<int>()) {
     cfg.minSegs = constrain(doc["minSegs"].as<int>(), 10, 500);
-    dspMinValidSegs = cfg.minSegs;  // DSP 엔진에 즉시 반영
+    dspMinValidSegs = cfg.minSegs;  // DSP ?遺우춭??筌앸맩??獄쏆꼷??
   }
   if (doc["wifiMode"].is<const char*>()) strncpy(cfg.wifiMode, doc["wifiMode"] | "ap", sizeof(cfg.wifiMode)-1);
   if (doc["staSSID"].is<const char*>()) strncpy(cfg.staSSID, doc["staSSID"] | "", sizeof(cfg.staSSID)-1);
   if (doc["staPass"].is<const char*>()) strncpy(cfg.staPass, doc["staPass"] | "", sizeof(cfg.staPass)-1);
   if (doc["hostname"].is<const char*>()) {
     strncpy(cfg.hostname, doc["hostname"] | "femto", sizeof(cfg.hostname)-1);
-    // 호스트명 유효성: 영숫자+하이픈만, 첫글자 영문
+    // ?紐꾨뮞?紐껋구 ?醫륁뒞?? ?怨몃떭????륁뵠??덉춸, 筌ｃ꺁????怨론?
     for (int i=0; cfg.hostname[i]; i++) {
       char c = cfg.hostname[i];
       if (!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-')) cfg.hostname[i] = '-';
@@ -613,22 +602,38 @@ void handlePostConfig() {
   server.send(200,"application/json","{\"ok\":true}");
 }
 
-// ── 배경 PSD NVS 로드 (부팅 시) ──
+static inline int currentPsdBinCount() {
+  return dspBinMax() - dspBinMin() + 1;
+}
+
+// ???? ??? PSD NVS ??? (?????? ????
 void loadBgPsdFromNVS() {
   prefs.begin("femto_bg", true);  // read-only
   if (prefs.getBool("valid", false)) {
-    // v0.8.1: blob 방식 우선 → 개별 키 폴백
+    memset(dspBgPsd, 0, sizeof(dspBgPsd));
     size_t len = prefs.getBytesLength("psd");
-    if (len == 59 * sizeof(float)) {
+    const int savedBinMin = prefs.getInt("binMin", -1);
+    const int savedBinCount = prefs.getInt("binCount", 0);
+    const int savedSampleRate = prefs.getInt("sampleRate", 0);
+    if (savedBinCount > 0 &&
+        savedBinCount <= DSP_NBINS &&
+        savedBinMin >= 0 &&
+        (savedBinMin + savedBinCount) <= DSP_NBINS &&
+        len == (size_t)(savedBinCount * sizeof(float)) &&
+        (savedSampleRate == 0 || savedSampleRate == cfg.sampleRate)) {
+      float buf[DSP_NBINS];
+      prefs.getBytes("psd", buf, len);
+      for (int i = 0; i < savedBinCount; i++) dspBgPsd[savedBinMin + i] = buf[i];
+      dspBgSegs = prefs.getInt("segs", 5);
+      Serial.printf("[NVS] bgPsd restored (%d bins)\n", savedBinCount);
+    } else if (len == 59 * sizeof(float) && cfg.sampleRate == (int)DSP_FS_DEFAULT) {
       float buf[59];
       prefs.getBytes("psd", buf, len);
-      int binMin = dspBinMin();
-      for (int i = 0; i < 59; i++) dspBgPsd[i + binMin] = buf[i];
+      for (int i = 0; i < 59; i++) dspBgPsd[i + 6] = buf[i];
       dspBgSegs = 5;
-      Serial.println("[NVS] bgPsd restored (blob 236B)");
-    } else if (prefs.isKey("b6")) {
-      // 개별 키 폴백 (v0.8.0 호환)
-      for (int k = DSP_BIN_MIN; k <= DSP_BIN_MAX; k++) {
+      Serial.println("[NVS] bgPsd restored (legacy blob 59 bins)");
+    } else if (prefs.isKey("b6") && cfg.sampleRate == (int)DSP_FS_DEFAULT) {
+      for (int k = 6; k <= 64; k++) {
         char key[8]; snprintf(key, sizeof(key), "b%d", k);
         dspBgPsd[k] = prefs.getFloat(key, 0.0f);
       }
@@ -639,20 +644,26 @@ void loadBgPsdFromNVS() {
   prefs.end();
 }
 
-// bgPsd를 NVS에 blob으로 저장 (59 floats = 236 bytes = 1키)
+// bgPsd??NVS??blob??? ????
 void saveBgPsdToNVS() {
-  float buf[59];
-  int binMin = dspBinMin();
-  for (int i = 0; i < 59; i++) buf[i] = dspBgPsd[i + binMin];
+  const int binMin = dspBinMin();
+  const int binCount = currentPsdBinCount();
+  float buf[DSP_NBINS];
+  memset(buf, 0, sizeof(buf));
+  for (int i = 0; i < binCount; i++) buf[i] = dspBgPsd[i + binMin];
   prefs.begin("femto_bg", false);
-  prefs.clear();  // 이전 개별 키 정리
+  prefs.clear();
   prefs.putBool("valid", true);
-  prefs.putBytes("psd", buf, sizeof(buf));  // 236B = ~8 NVS 엔트리
+  prefs.putInt("sampleRate", cfg.sampleRate);
+  prefs.putInt("binMin", binMin);
+  prefs.putInt("binCount", binCount);
+  prefs.putInt("segs", dspBgSegs);
+  prefs.putBytes("psd", buf, binCount * sizeof(float));
   prefs.end();
-  Serial.println("[NVS] bgPsd saved (blob 236B, 2 writes)");
+  Serial.printf("[NVS] bgPsd saved (%d bins)\n", binCount);
 }
 
-// ── 배경 PSD API ──
+// ???? 獄쏄퀗瑗?PSD API ????
 void handleGetNoise() {
   JsonDocument doc;
   float freqRes = dspFreqRes();
@@ -776,65 +787,108 @@ void handleLoadDiag() {
   sendJson(doc);
 }
 
-// ── AP 워치독 ────────────────────────────────────────
+// ???? AP ???뒄??????????????????????????????????????????????????????????????????????????????????
 unsigned long lastApCheck = 0;
-int apFailCount = 0;  // 3단계 복구용 카운터
-static wifi_power_t txPower = WIFI_POWER_8_5dBm; // WiFi TX 파워 (전역 — 복구 시 재사용)
+int apFailCount = 0;  // 3??ｍ?癰귣벀???燁삳똻???static wifi_power_t txPower = WIFI_POWER_8_5dBm; // WiFi TX ???뜖 (?袁⑸열 ??癰귣벀??????沅??
 
-// ── 측정 상태 ────────────────────────────────────────
-// [BUG-6 수정] 세그먼트 버퍼/오버랩 로직은 dsp.h의 dspFeed()로 캡슐화
-// main.cpp는 샘플만 공급하면 됨
-enum MeasState { MEAS_IDLE, MEAS_PRINT, MEAS_DONE };
+// ???? 筌β돦???怨밴묶 ????????????????????????????????????????????????????????????????????????????????
+// [BUG-6 ??륁젟] ?硫몃젃?믪눛??甕곌쑵????살쒔??嚥≪뮇彛?? dsp.h??dspFeed()嚥?筌╈돦???// main.cpp????묐탣筌??⑤벀???롢늺 ??enum MeasState { MEAS_IDLE, MEAS_PRINT, MEAS_DONE };
 static MeasState measState = MEAS_IDLE;
 
-// v1.0: 라이브 = 공진 검출의 실시간 뷰
-static WiFiClient liveSSEClient;
+// v1.0: ??깆뵠??= ?⑤벊彛?野꺜?곗뮇????쇰뻻揶???static WiFiClient liveSSEClient;
 static bool  liveMode = false;
 static int   liveSegReset = 0;
 
-// v1.0: 결과 (듀얼 DSP에서 직접 사용)
+// v1.0: 野껉퀗??(????DSP?癒?퐣 筌욊낯??????
 static float peakFreqX = 0.0f, peakFreqY = 0.0f;
 static float peakPowerX = 0.0f, peakPowerY = 0.0f;
 static int   segCountX = 0, segCountY = 0;
 
-// v1.0: 측정 PSD 백업 (라이브에 의한 오염 방지)
-#define MEAS_BINS 59  // DSP_BIN_MIN(6) ~ DSP_BIN_MAX(64)
-static float measPsdX[MEAS_BINS], measPsdY[MEAS_BINS];
-static float measVarX[MEAS_BINS], measVarY[MEAS_BINS];
+// v1.0: 筌β돦??PSD 獄쏄퉮毓?(??깆뵠?됰슣肉???묐립 ??쇰옘 獄쎻뫗?)
+#define MEAS_MAX_BINS DSP_NBINS
+static float measPsdX[MEAS_MAX_BINS], measPsdY[MEAS_MAX_BINS];
+static float measVarX[MEAS_MAX_BINS], measVarY[MEAS_MAX_BINS];
+static int   measBinMin = 0;
+static int   measBinCount = 0;
 static bool  measPsdValid = false;
 
 void saveMeasPsdToNVS() {
   prefs.begin("femto_mpsd", false);
-  prefs.putBytes("px", measPsdX, sizeof(measPsdX));
-  prefs.putBytes("py", measPsdY, sizeof(measPsdY));
-  prefs.putBytes("vx", measVarX, sizeof(measVarX));
-  prefs.putBytes("vy", measVarY, sizeof(measVarY));
+  prefs.clear();
+  prefs.putInt("sampleRate", cfg.sampleRate);
+  prefs.putInt("binMin", measBinMin);
+  prefs.putInt("binCount", measBinCount);
+  prefs.putBytes("px", measPsdX, measBinCount * sizeof(float));
+  prefs.putBytes("py", measPsdY, measBinCount * sizeof(float));
+  prefs.putBytes("vx", measVarX, measBinCount * sizeof(float));
+  prefs.putBytes("vy", measVarY, measBinCount * sizeof(float));
   prefs.putBool("valid", true);
   prefs.end();
-  Serial.println("[NVS] measPsd saved (944B)");
+  Serial.printf("[NVS] measPsd saved (%d bins)\n", measBinCount);
 }
 
 void loadMeasPsdFromNVS() {
   if (!prefs.begin("femto_mpsd", true)) { prefs.end(); return; }
+  memset(measPsdX, 0, sizeof(measPsdX));
+  memset(measPsdY, 0, sizeof(measPsdY));
+  memset(measVarX, 0, sizeof(measVarX));
+  memset(measVarY, 0, sizeof(measVarY));
+  measBinMin = 0;
+  measBinCount = 0;
   measPsdValid = prefs.getBool("valid", false);
   if (measPsdValid) {
-    prefs.getBytes("px", measPsdX, sizeof(measPsdX));
-    prefs.getBytes("py", measPsdY, sizeof(measPsdY));
-    prefs.getBytes("vx", measVarX, sizeof(measVarX));
-    prefs.getBytes("vy", measVarY, sizeof(measVarY));
-    Serial.println("[NVS] measPsd restored");
+    const int savedBinMin = prefs.getInt("binMin", -1);
+    const int savedBinCount = prefs.getInt("binCount", 0);
+    const int savedSampleRate = prefs.getInt("sampleRate", 0);
+    const size_t pxLen = prefs.getBytesLength("px");
+    const size_t pyLen = prefs.getBytesLength("py");
+    const size_t vxLen = prefs.getBytesLength("vx");
+    const size_t vyLen = prefs.getBytesLength("vy");
+    const bool currentRateMatches = (savedSampleRate == 0 || savedSampleRate == cfg.sampleRate);
+    if (savedBinCount > 0 &&
+        savedBinCount <= MEAS_MAX_BINS &&
+        savedBinMin >= 0 &&
+        (savedBinMin + savedBinCount) <= DSP_NBINS &&
+        currentRateMatches &&
+        pxLen == (size_t)(savedBinCount * sizeof(float)) &&
+        pyLen == (size_t)(savedBinCount * sizeof(float)) &&
+        vxLen == (size_t)(savedBinCount * sizeof(float)) &&
+        vyLen == (size_t)(savedBinCount * sizeof(float))) {
+      measBinMin = savedBinMin;
+      measBinCount = savedBinCount;
+      prefs.getBytes("px", measPsdX, pxLen);
+      prefs.getBytes("py", measPsdY, pyLen);
+      prefs.getBytes("vx", measVarX, vxLen);
+      prefs.getBytes("vy", measVarY, vyLen);
+      Serial.printf("[NVS] measPsd restored (%d bins)\n", measBinCount);
+    } else if (cfg.sampleRate == (int)DSP_FS_DEFAULT &&
+               pxLen == 59 * sizeof(float) &&
+               pyLen == 59 * sizeof(float) &&
+               vxLen == 59 * sizeof(float) &&
+               vyLen == 59 * sizeof(float)) {
+      measBinMin = 6;
+      measBinCount = 59;
+      prefs.getBytes("px", measPsdX, pxLen);
+      prefs.getBytes("py", measPsdY, pyLen);
+      prefs.getBytes("vx", measVarX, vxLen);
+      prefs.getBytes("vy", measVarY, vyLen);
+      Serial.println("[NVS] measPsd restored (legacy 59 bins)");
+    } else {
+      measPsdValid = false;
+      Serial.println("[NVS] measPsd skipped (sample rate/bin metadata mismatch)");
+    }
   }
   prefs.end();
 }
 
-// ── GET /api/psd — PSD 데이터 + 피크 반환 ────────────
-// axis 파라미터: ?axis=x → X 스냅샷, ?axis=y → 현재 PSD
-// [Round 3] MEAS_DONE 후에만 호출 권장 (측정중 호출 시 FIFO 손실 가능)
+// ???? GET /api/psd ??PSD ?怨쀬뵠??+ ??녠쾿 獄쏆꼹??????????????????????????
+// axis ???뵬沃섎챸苑? ?axis=x ??X ??산퉬?? ?axis=y ???袁⑹삺 PSD
+// [Round 3] MEAS_DONE ?袁⑸퓠筌??紐꾪뀱 亦낅슣??(筌β돦?쇾빳??紐꾪뀱 ??FIFO ?癒?뼄 揶쎛??
 void handleGetPsd() {
   const float freqRes = dspFreqRes();
   const int binMin = dspBinMin();
   const int binMax = dspBinMax();
-  // v1.0: Print Measure 모드 — 백업 PSD 반환 (라이브 오염 방지)
+  // v1.0: Print Measure 筌뤴뫀諭???獄쏄퉮毓?PSD 獄쏆꼹??(??깆뵠????쇰옘 獄쎻뫗?)
   if (server.hasArg("mode") && strcmp(server.arg("mode").c_str(),"print")==0) {
     if (!measPsdValid) {
       server.send(200, "application/json", "{\"ok\":false,\"err\":\"no measurement data\"}");
@@ -844,32 +898,34 @@ void handleGetPsd() {
     doc["ok"] = true;
     doc["mode"] = "print";
     doc["freqRes"] = freqRes;
-    // X bins (백업)
+    doc["binMin"] = measBinMin;
+    doc["binCount"] = measBinCount;
+    // X bins (???)
     JsonArray bx = doc["binsX"].to<JsonArray>();
-    for (int i=0; i<MEAS_BINS; i++) {
+    for (int i = 0; i < measBinCount; i++) {
       JsonObject b = bx.add<JsonObject>();
-      b["f"] = (i + binMin) * freqRes;
+      b["f"] = (i + measBinMin) * freqRes;
       b["v"] = measPsdX[i];
       b["var"] = measVarX[i];
     }
-    // Y bins (백업)
+    // Y bins (???)
     JsonArray by = doc["binsY"].to<JsonArray>();
-    for (int i=0; i<MEAS_BINS; i++) {
+    for (int i = 0; i < measBinCount; i++) {
       JsonObject b = by.add<JsonObject>();
-      b["f"] = (i + binMin) * freqRes;
+      b["f"] = (i + measBinMin) * freqRes;
       b["v"] = measPsdY[i];
       b["var"] = measVarY[i];
     }
     // bgPsd
     if (dspBgSegs > 0) {
       JsonArray bg = doc["bgPsd"].to<JsonArray>();
-      for (int k=binMin; k<=binMax; k++) bg.add(dspBgPsd[k]);
+      for (int k = binMin; k <= binMax; k++) bg.add(dspBgPsd[k]);
     }
     sendJson(doc);
     return;
   }
 
-  // axis 파라미터 처리
+  // axis ???뵬沃섎챸苑?筌ｌ꼶??
   const char* axis = server.hasArg("axis") ? server.arg("axis").c_str() : "current";
 
 DspStatus st = dspGetStatus();
@@ -886,15 +942,15 @@ DspStatus st = dspGetStatus();
   doc["freqRes"]   = freqRes;
   doc["measState"] = (measState == MEAS_PRINT) ? "print" :
                      (measState == MEAS_DONE) ? "done" : "idle";
-  // PSD bins (18.75~200Hz) + v0.9 분산
+  // PSD bins (18.75~200Hz) + v0.9 ?브쑴沅?
   JsonArray bins = doc["bins"].to<JsonArray>();
   for (int k = binMin; k <= binMax; k++) {
     JsonObject b = bins.add<JsonObject>();
     b["f"] = k * freqRes;
     b["v"] = dspPsdAccum[k];
-    b["var"] = dspPsdVar[k];  // v0.9: 세그먼트 간 분산
+    b["var"] = dspPsdVar[k];  // v0.9: ?硫몃젃?믪눛??揶??브쑴沅?
   }
-  // peaks[] — dsp.h dspFindPeaks() 결과 직렬화 (diagnostic.js Stage 2 사용)
+  // peaks[] ??dsp.h dspFindPeaks() 野껉퀗??筌욊낮???(diagnostic.js Stage 2 ????
   JsonArray peaksArr = doc["peaks"].to<JsonArray>();
   for (int i = 0; i < st.peakCount; i++) {
     JsonObject pk = peaksArr.add<JsonObject>();
@@ -902,7 +958,7 @@ DspStatus st = dspGetStatus();
     pk["v"]    = st.peaks[i].power;
     pk["prom"] = st.peaks[i].prominence;
   }
-  // 배경 PSD (정지 구간 스냅샷 — JS에서 노이즈 차감용)
+  // 獄쏄퀗瑗?PSD (?類? ?닌덉퍢 ??산퉬????JS?癒?퐣 ?紐꾩뵠筌?筌△몿而??
   if (dspBgSegs > 0) {
     JsonArray bg = doc["bgPsd"].to<JsonArray>();
     for (int k = binMin; k <= binMax; k++) {
@@ -913,7 +969,7 @@ DspStatus st = dspGetStatus();
   sendJson(doc);
 }
 
-// ── POST /api/measure — 측정 제어 ──────────────────
+// ???? POST /api/measure ??筌β돦????뽯선 ????????????????????????????????????
 // body: {"cmd":"print_start"|"print_stop"|"stop"|"reset"}
 void handleMeasure() {
   if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
@@ -924,28 +980,34 @@ void handleMeasure() {
   JsonDocument res;
 
   if (strcmp(cmd,"print_start")==0) {
-    // v1.0: 공진 검출 시작 — 듀얼 DSP
+    // v1.0: ?⑤벊彛?野꺜????뽰삂 ??????DSP
     if (!cfg.useCalWeights) {
       res["ok"] = false; res["error"] = "calibration_required";
       sendJson(res); return;
     }
-    liveMode = false;  // 라이브 롤링 → 공진 검출 모드로 전환
+    liveMode = false;  // ??깆뵠??嚥▲끇彛????⑤벊彛?野꺜??筌뤴뫀諭뜻에??袁れ넎
     dspResetDual();
     measState = MEAS_PRINT;
     ledState  = LED_BLINK;
     res["ok"] = true; res["state"] = "print";
-    Serial.println("[MEAS] 공진 검출 시작 (듀얼 DSP)");
+    Serial.println("[MEAS] ?⑤벊彛?野꺜????뽰삂 (????DSP)");
   }
   else if (strcmp(cmd,"print_stop")==0) {
-    // v1.0: 공진 검출 종료
+    // v1.0: ??? ???????
     dspUpdateDual();
-    // PSD 백업 (라이브 오염 방지)
-    for (int k=DSP_BIN_MIN, i=0; k<=DSP_BIN_MAX; k++, i++) {
+    // PSD ??? (???????? ???)
+    memset(measPsdX, 0, sizeof(measPsdX));
+    memset(measPsdY, 0, sizeof(measPsdY));
+    memset(measVarX, 0, sizeof(measVarX));
+    memset(measVarY, 0, sizeof(measVarY));
+    measBinMin = dspBinMin();
+    measBinCount = currentPsdBinCount();
+    for (int k = measBinMin, i = 0; i < measBinCount; k++, i++) {
       measPsdX[i] = dspDualPsdX[k]; measPsdY[i] = dspDualPsdY[k];
       measVarX[i] = dspDualVarX[k]; measVarY[i] = dspDualVarY[k];
     }
     measPsdValid = true;
-    saveMeasPsdToNVS();  // 재부팅 후에도 차트 복원
+    saveMeasPsdToNVS();  // ????????????? ???
     float pkPwrX=0, pkPwrY=0;
     peakFreqX = dspDualFindPeak(dspDualPsdX, dspDualSegCountX(), &pkPwrX);
     peakFreqY = dspDualFindPeak(dspDualPsdY, dspDualSegCountY(), &pkPwrY);
@@ -963,14 +1025,14 @@ void handleMeasure() {
     res["convergenceX"] = dspDualConvergence('x');
     res["convergenceY"] = dspDualConvergence('y');
     res["sweepDetected"] = true;
-    Serial.printf("[MEAS] 공진 검출 완료 (X:%.1fHz/%d Y:%.1fHz/%d gate:%.0f%% corr:%.0f%%)\n",
+    Serial.printf("[MEAS] ?⑤벊彛?野꺜???袁⑥┷ (X:%.1fHz/%d Y:%.1fHz/%d gate:%.0f%% corr:%.0f%%)\n",
       peakFreqX, segCountX, peakFreqY, segCountY,
       dspDualGateRatio()*100, dspDualCorrelation()*100);
   }
   else if (strcmp(cmd,"stop")==0) {
-    // 범용 중지 (공진 검출 또는 아무 상태)
+    // 甕곕뗄??餓λ쵐? (?⑤벊彛?野꺜???癒?뮉 ?袁ⓓ??怨밴묶)
     if (measState == MEAS_PRINT) {
-      // print_stop과 동일 처리
+      // print_stop????덉뵬 筌ｌ꼶??
       dspUpdateDual();
       float pkPwrX=0, pkPwrY=0;
       peakFreqX = dspDualFindPeak(dspDualPsdX, dspDualSegCountX(), &pkPwrX);
@@ -996,14 +1058,14 @@ void handleMeasure() {
 }
 
 
-// ── GET /api/measure/status — 현재 측정 상태 ─────────
+// ???? GET /api/measure/status ???袁⑹삺 筌β돦???怨밴묶 ??????????????????
 void handleMeasStatus() {
   JsonDocument doc;
-  // v1.0: 3상태 (IDLE=0, PRINT=1, DONE=2)
+  // v1.0: 3?怨밴묶 (IDLE=0, PRINT=1, DONE=2)
   const char* stStr[] = {"idle","print","done"};
   doc["state"]       = stStr[measState];
   doc["measState"]   = stStr[measState];
-  // Print Measure 모드일 때 듀얼 세그먼트 수 반환
+  // Print Measure 筌뤴뫀諭?????????硫몃젃?믪눛????獄쏆꼹??
   if (measState == MEAS_PRINT) {
     doc["segCount"]  = dspDualSegCountY();
     doc["segCountX"] = dspDualSegCountX();
@@ -1036,13 +1098,12 @@ void handleMeasStatus() {
   sendJson(doc);
 }
 
-// ── 딥슬립 설정 ─────────────────────────────────────
+// ???? ?關?녕뵳???쇱젟 ??????????????????????????????????????????????????????????????????????????
 // deep sleep timeout
-#define DEEP_SLEEP_TIMEOUT_MS  (5 * 60 * 1000)  // 5분 무활동 → 딥슬립
-static unsigned long lastActivityMs = 0;
+#define DEEP_SLEEP_TIMEOUT_MS  (5 * 60 * 1000)  // 5???얜똾??????關?녕뵳?static unsigned long lastActivityMs = 0;
 
-// ── setup ────────────────────────────────────────────
-// v0.9: 라이브 SSE 스트리밍 — 실시간 FFT PSD
+// ???? setup ????????????????????????????????????????????????????????????????????????????????????????
+// v0.9: ??깆뵠??SSE ??쎈뱜?귐됱빪 ????쇰뻻揶?FFT PSD
 void handleLiveStream() {
   WiFiClient client = server.client();
   client.println("HTTP/1.1 200 OK");
@@ -1071,12 +1132,12 @@ void handleLiveAxis() {
   JsonDocument req;
   if (deserializeJson(req, server.arg("plain"))) { server.send(400,"text/plain","JSON"); return; }
   const char* ax = req["axis"] | "a";
-  // PSD 리셋 → 새 축으로 다시 축적
+  // PSD ?귐딅??????곕벡?앮에???쇰뻻 ?곕벡??
   if (liveMode) { dspReset(); }
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
-// v0.9: WiFi 스캔
+// v0.9: WiFi ??쇳떔
 void handleWifiScan() {
   int n = WiFi.scanNetworks(false, false, false, 300);
   JsonDocument doc;
@@ -1094,17 +1155,17 @@ void handleWifiScan() {
 
 void setup() {
   Serial.begin(115200);
-  // USB CDC 연결 대기 (최대 3초 — 연결 안 돼도 진행)
+  // USB CDC ?怨뚭퍙 ??疫?(筌ㅼ뮆? 3?????怨뚭퍙 ????곕즲 筌욊쑵六?
   unsigned long waitStart = millis();
   while (!Serial && (millis() - waitStart < 3000)) { delay(10); }
   delay(200);
 
-  // 딥슬립 웨이크업 원인 확인
+  // ?關?녕뵳???μ뵠??毓??癒?뵥 ?類ㅼ뵥
   esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
   if (wakeup == ESP_SLEEP_WAKEUP_GPIO) {
-    Serial.println("[WAKE] GPIO 웨이크업 (택트스위치)");
+    Serial.println("[WAKE] GPIO ??μ뵠??毓?(??븍뱜??쇱맄燁?");
   } else if (wakeup != ESP_SLEEP_WAKEUP_UNDEFINED) {
-    Serial.printf("[WAKE] 원인: %d\n", wakeup);
+    Serial.printf("[WAKE] ?癒?뵥: %d\n", wakeup);
   }
 
   lastActivityMs = millis();
@@ -1116,9 +1177,9 @@ void setup() {
   File f = root.openNextFile();
   while (f) { Serial.printf("  %s (%dB)\n",f.name(),f.size()); f=root.openNextFile(); }
 
-  loadConfig();  // NVS 설정 로드 — GPIO 초기화 전에 필수
+  loadConfig();  // NVS ??쇱젟 嚥≪뮆諭???GPIO ?λ뜃由???袁⑸퓠 ?袁⑸땾
 
-  // GPIO 초기화 (loadConfig 이후 — NVS 핀 설정 반영)
+  // GPIO ?λ뜃由??(loadConfig ??꾩뜎 ??NVS ?? ??쇱젟 獄쏆꼷??
   pinMode(cfg.pinLED, OUTPUT);
   digitalWrite(cfg.pinLED, HIGH);  // OFF
   pinMode(cfg.pinReset, INPUT_PULLUP); // reset button
@@ -1126,23 +1187,23 @@ void setup() {
   adxlOK = adxlInit();
   Serial.printf("[ADXL] %s\n", adxlOK ? "OK" : "FAIL");
 
-  // 배경 PSD: NVS 폴백 로드 (loop에서 부팅 캡처 후 갱신)
-  // v0.8 마이그레이션: 이전 513빈 bgPsd 정리
+  // 獄쏄퀗瑗?PSD: NVS ??媛?嚥≪뮆諭?(loop?癒?퐣 ?봔??筌╈돦荑???揶쏄퉮??
+  // v0.8 筌띾뜆?졿뉩紐껋쟿??곷? ??곸읈 513??bgPsd ?類ｂ봺
   {
-    prefs.begin("femto_bg", true);  // read-only 확인
+    prefs.begin("femto_bg", true);  // read-only ?類ㅼ뵥
     bool hasLegacy = prefs.isKey("b0");
     prefs.end();
     if (hasLegacy) {
-      prefs.begin("femto_bg", false);  // write 모드 — 정리 필요할 때만
+      prefs.begin("femto_bg", false);  // write 筌뤴뫀諭????類ｂ봺 ?袁⑹뒄?????춸
       prefs.clear();
       prefs.end();
       Serial.println("[NVS] Cleared legacy 513-bin bgPsd");
     }
   }
   loadBgPsdFromNVS();
-  loadMeasPsdFromNVS();  // v1.0: 측정 PSD 복원 (재부팅 후 차트 유지)
+  loadMeasPsdFromNVS();  // v1.0: 筌β돦??PSD 癰귣벊??(???????筌△뫂???醫?)
 
-  // ── WiFi 초기화 (AP / STA 모드 지원) ──
+  // ???? WiFi ?λ뜃由??(AP / STA 筌뤴뫀諭?筌왖?? ????
   WiFi.mode(WIFI_OFF);
   delay(100);
   WiFi.disconnect(true);
@@ -1162,16 +1223,15 @@ void setup() {
 
   bool staConnected = false;
 
-  // STA 모드 시도
+  // STA 筌뤴뫀諭???뺣즲
   if (strcmp(cfg.wifiMode,"sta")==0 && strlen(cfg.staSSID) > 0) {
-    Serial.printf("[WiFi] STA mode — connecting to '%s'...\n", cfg.staSSID);
+    Serial.printf("[WiFi] STA mode ??connecting to '%s'...\n", cfg.staSSID);
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname(cfg.hostname);  // v1.0: mDNS 호스트명
+    WiFi.setHostname(cfg.hostname);  // v1.0: mDNS ?紐꾨뮞?紐껋구
     WiFi.setTxPower(txPower);
     WiFi.begin(cfg.staSSID, cfg.staPass);
 
-    // 최대 15초 대기
-    int wait = 0;
+    // 筌ㅼ뮆? 15????疫?    int wait = 0;
     while (WiFi.status() != WL_CONNECTED && wait < 30) {
       delay(500);
       Serial.print(".");
@@ -1184,13 +1244,13 @@ void setup() {
       Serial.printf("[WiFi] STA connected! IP: %s (Heap: %u)\n",
         WiFi.localIP().toString().c_str(), ESP.getFreeHeap());
     } else {
-      Serial.println("[WiFi] STA failed — fallback to AP mode");
+      Serial.println("[WiFi] STA failed ??fallback to AP mode");
       WiFi.disconnect(true);
       delay(100);
     }
   }
 
-  // AP 모드 (기본 또는 STA 실패 시 폴백)
+  // AP 筌뤴뫀諭?(疫꿸퀡???癒?뮉 STA ??쎈솭 ????媛?
   if (!staConnected) {
     WiFi.mode(WIFI_AP);
     delay(200);
@@ -1205,7 +1265,7 @@ void setup() {
         apStarted = true;
         break;
       }
-      Serial.printf("[WiFi] AP start failed — retry %d/3\n", attempt);
+      Serial.printf("[WiFi] AP start failed ??retry %d/3\n", attempt);
       WiFi.softAPdisconnect(true);
       delay(200);
     }
@@ -1214,19 +1274,19 @@ void setup() {
       AP_SSID, WiFi.softAPIP().toString().c_str(), txPowerLevel, ESP.getFreeHeap());
 
     if (!apStarted) {
-      Serial.println("[WiFi] AP failed — reboot in 5s");
+      Serial.println("[WiFi] AP failed ??reboot in 5s");
       delay(5000);
       ESP.restart();
     }
   }
 
-  // DNS 서버 (AP 모드에서만 — 캡티브 포털)
+  // DNS ??뺤쒔 (AP 筌뤴뫀諭?癒?퐣筌???筌╈돧?싮뇡???苑?
   if (!staConnected) {
     dnsServer.start(53, "*", AP_IP);
-    Serial.println("[DNS] 캡티브 포털 시작");
+    Serial.println("[DNS] 筌╈돧?싮뇡???苑???뽰삂");
   }
 
-  // mDNS: hostname.local 접속 지원 (STA 모드에서만 유의미)
+  // mDNS: hostname.local ?臾믩꺗 筌왖??(STA 筌뤴뫀諭?癒?퐣筌??醫롮벥沃?
   if (staConnected) {
     esp_log_level_set("WiFiUdp", ESP_LOG_NONE);
     if (MDNS.begin(cfg.hostname)) {
@@ -1255,7 +1315,7 @@ void setup() {
   server.on("/settings.js",   [JS=JS]()   { serveFile("/settings.js",   JS); });
   server.on("/app.js",        [JS=JS]()   { serveFile("/app.js",        JS); });
   server.on("/report.js",     [JS=JS]()   { serveFile("/report.js",     JS); });
-  // adxl_test.js: 디버그 전용, v0.8에서 제거
+  // adxl_test.js: ?遺얠쒔域??袁⑹뒠, v0.8?癒?퐣 ??볤탢
 
   server.on("/api/config",      HTTP_GET,  handleGetConfig);
   server.on("/api/noise",       HTTP_GET,  handleGetNoise);
@@ -1288,9 +1348,8 @@ void setup() {
   });
   server.on("/favicon.ico", []() { server.send(204,"text/plain",""); });
 
-  // ── 캡티브 포털 엔드포인트 ─────────────────────────
-  // Android/iOS/Windows/Firefox 전 플랫폼 감지 엔드포인트
-  // 모두 302 리다이렉트 → 캡티브 포털 자동 팝업
+  // ???? 筌╈돧?싮뇡???苑??遺얜굡???????????????????????????????????????????????????????
+  // Android/iOS/Windows/Firefox ?????삸??揶쏅Ŋ? ?遺얜굡?????  // 筌뤴뫀紐?302 ?귐됰뼄???????筌╈돧?싮뇡???苑??癒?짗 ??밸씜
   auto redirectToPortal = []() {
     { char loc[40]; snprintf(loc,sizeof(loc),"http://%s",AP_IP.toString().c_str()); server.sendHeader("Location",loc,true); }
     server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -1310,32 +1369,31 @@ void setup() {
   server.on("/canonical.html", redirectToPortal);
   server.on("/success.txt",    []() {
     server.sendHeader("Cache-Control", "no-cache");
-    server.send(200, "text/plain", "success");  // Firefox 전용 응답
+    server.send(200, "text/plain", "success");  // Firefox ?袁⑹뒠 ?臾먮뼗
   });
-  // 미등록 URL → index.html (SPA 라우팅 + 캡티브 포털 폴백)
+  // 沃섎챶踰묉에?URL ??index.html (SPA ??깆뒭??+ 筌╈돧?싮뇡???苑???媛?
   server.onNotFound([]() {
     serveFile("/index.html", "text/html");
   });
 
   server.begin();
-  Serial.println("[HTTP] 시작 — http://192.168.4.1");
+  Serial.println("[HTTP] ??뽰삂 ??http://192.168.4.1");
 }
 
-// ── loop ─────────────────────────────────────────────
-static const int BOOT_NOISE_TARGET = 1024 + 9 * DSP_STEP; // 10 segments ≈ 0.8s
+// ???? loop ??????????????????????????????????????????????????????????????????????????????????????????
+static const int BOOT_NOISE_TARGET = 1024 + 9 * DSP_STEP; // 10 segments ??0.8s
 
 void loop() {
-  dnsServer.processNextRequest();  // 캡티브 포털 DNS
+  dnsServer.processNextRequest();  // 筌╈돧?싮뇡???苑?DNS
   server.handleClient();
 
   if (adxlOK) {
     adxlUpdate();
 
-    // ── 부팅 배경 PSD 캡처 (비동기, WiFi와 병렬) ──
+    // ???? ?봔??獄쏄퀗瑗?PSD 筌╈돦荑?(??쑬猷욄묾? WiFi?? 癰귣쵎?? ????
     if (!bootNoiseDone && measState == MEAS_IDLE) {
-      // 첫 진입 시 초기화
-      if (bootNoiseSamples == 0) {
-        dspBgSegs = 0;           // NVS 로드값 무효화 → 새 캡처 허용
+      // 筌?筌욊쑴?????λ뜃由??      if (bootNoiseSamples == 0) {
+        dspBgSegs = 0;           // NVS 嚥≪뮆諭뜹첎??얜똾???????筌╈돦荑???됱뒠
         dspReset();
         
       }
@@ -1343,7 +1401,7 @@ void loop() {
         AdxlSample s = adxlBuf[adxlHead];
         adxlHead  = (adxlHead + 1) % ADXL_BUF_SIZE;
         adxlCount--;
-        // v0.9: 캘리브레이션 가중치 적용 (측정과 동일 스케일)
+        // v0.9: 筌?꼶?곲뇡??쟿??곷?揶쎛餓λ쵐???怨몄뒠 (筌β돦?숁???덉뵬 ?????
         int16_t val;
         if (cfg.useCalWeights) {
           val = (int16_t)(cfg.calWx[0]*s.x + cfg.calWx[1]*s.y + cfg.calWx[2]*s.z);
@@ -1356,12 +1414,12 @@ void loop() {
       if (bootNoiseSamples >= BOOT_NOISE_TARGET || millis() > 10000) {
         bootNoiseDone = true;
         if (dspBgSegs > 0) {
-          // v0.9: 자기일관성 체크 — 전반(seg 1-5) vs 후반(seg 6-10) 에너지 비교
-          // dspBgPsd = seg 1-5 평균 (dsp.h에서 seg 5 시점 캡처)
-          // _psdSum/10 = seg 1-10 전체 평균
-          // 후반 평균 = (전체*10 - 전반*5) / 5
+          // v0.9: ?癒?┛?????筌ｋ똾寃????袁⑥뺘(seg 1-5) vs ?袁⑥뺘(seg 6-10) ?癒?섐筌왖 ??쑨??
+          // dspBgPsd = seg 1-5 ???뇧 (dsp.h?癒?퐣 seg 5 ??뽰젎 筌╈돦荑?
+          // _psdSum/10 = seg 1-10 ?袁⑷퍥 ???뇧
+          // ?袁⑥뺘 ???뇧 = (?袁⑷퍥*10 - ?袁⑥뺘*5) / 5
           float eFirst = 0, eSecond = 0;
-          for (int k = DSP_BIN_MIN; k <= DSP_BIN_MAX; k++) {
+          for (int k = dspBinMin(); k <= dspBinMax(); k++) {
             float totalAvg = _psdSum[k] / (float)_segCount;
             float firstAvg = dspBgPsd[k];
             float secondAvg = (_segCount >= 10)
@@ -1374,34 +1432,34 @@ void loop() {
           bool consistent = (ratio > 0.5f && ratio < 2.0f);
 
           if (consistent) {
-            // 일관적 → 전체 평균을 최종 bgPsd로 사용 (더 정밀)
+            // ????????袁⑷퍥 ???뇧??筌ㅼ뮇伊?bgPsd嚥?????(???類?)
             dspUpdateAccum();
             for (int k = dspBinMin(); k <= dspBinMax(); k++)
               dspBgPsd[k] = dspPsdAccum[k];
             saveBgPsdToNVS();
             Serial.printf("[BOOT] bgPsd OK (ratio=%.2f, %d samples)\n", ratio, bootNoiseSamples);
           } else {
-            // 비일관적 → WiFi 스파이크 등 오염 가능성 → NVS 폴백
+            // ??쑴?ゆ꽴?????WiFi ??쎈솁??꾧쾿 ????쇰옘 揶쎛?關苑???NVS ??媛?
             loadBgPsdFromNVS();
-            Serial.printf("[BOOT] bgPsd inconsistent (ratio=%.2f) → NVS fallback\n", ratio);
+            Serial.printf("[BOOT] bgPsd inconsistent (ratio=%.2f) ??NVS fallback\n", ratio);
           }
         } else {
-          // 캡처 실패 → NVS 폴백 복원
+          // 筌╈돦荑???쎈솭 ??NVS ??媛?癰귣벊??
           loadBgPsdFromNVS();
-          Serial.println("[BOOT] Capture failed — NVS fallback restored");
+          Serial.println("[BOOT] Capture failed ??NVS fallback restored");
         }
-        // v0.9: 배경 에너지 계산 → 스윕 감지 threshold 기준
+        // v0.9: 獄쏄퀗瑗??癒?섐筌왖 ?④쑴沅?????쇱맪 揶쏅Ŋ? threshold 疫꿸퀣?
         dspBgEnergy = 0;
         for (int k = dspBinMin(); k <= dspBinMax(); k++) dspBgEnergy += dspBgPsd[k];
         if (dspBgEnergy < 50.0f) dspBgEnergy = 50.0f;
-        Serial.printf("[BOOT] bgEnergy=%.0f → sweep threshold base\n", dspBgEnergy);
-        dspReset();  // sweepDetect 다시 ON으로 복원
+        Serial.printf("[BOOT] bgEnergy=%.0f ??sweep threshold base\n", dspBgEnergy);
+        dspReset();  // sweepDetect ??쇰뻻 ON??곗쨮 癰귣벊??
       }
     }
 
-    // v1.0: Print Measure — 듀얼 DSP
+    // v1.0: Print Measure ??????DSP
     else if (measState == MEAS_PRINT) {
-      const float scale = 0.0039f * 9.80665f;  // raw → m/s²
+      const float scale = 0.0039f * 9.80665f;  // raw ??m/s吏?
       while (adxlCount > 0) {
         AdxlSample s = adxlBuf[adxlHead];
         adxlHead  = (adxlHead + 1) % ADXL_BUF_SIZE;
@@ -1411,12 +1469,12 @@ void loop() {
         float projY = cfg.calWy[0]*ax + cfg.calWy[1]*ay + cfg.calWy[2]*az;
         dspFeedDual(projX, projY);
       }
-      // SSE: 듀얼 세그먼트 완료 시 진행 상태 전송
+      // SSE: ?????硫몃젃?믪눛???袁⑥┷ ??筌욊쑵六??怨밴묶 ?袁⑸꽊
       if (dspDualNewSeg) {
         dspDualNewSeg = false;
         if (liveSSEClient.connected()) {
           dspUpdateDual();
-          char buf[2048];  // 59빈×2축×8B = ~1000B + 여유
+          char buf[2048];  // 59??뙛??곕묩?B = ~1000B + ???
           int len = snprintf(buf, sizeof(buf),
             "data: {\"m\":\"print\",\"sx\":%d,\"sy\":%d,\"st\":%d,\"gr\":%.2f,\"bx\":[",
             dspDualSegCountX(), dspDualSegCountY(), dspDualSegTotal(), dspDualGateRatio());
@@ -1449,7 +1507,7 @@ void loop() {
     } else {
       // IDLE/DONE
       if (liveMode && (measState == MEAS_IDLE || measState == MEAS_DONE)) {
-        // v1.0: 라이브 = 듀얼 DSP 롤링 모드
+        // v1.0: ??깆뵠??= ????DSP 嚥▲끇彛?筌뤴뫀諭?
         const float scale = 0.0039f * 9.80665f;
         while (adxlCount > 0) {
           AdxlSample s = adxlBuf[adxlHead];
@@ -1461,16 +1519,16 @@ void loop() {
             projX = cfg.calWx[0]*ax + cfg.calWx[1]*ay + cfg.calWx[2]*az;
             projY = cfg.calWy[0]*ax + cfg.calWy[1]*ay + cfg.calWy[2]*az;
           } else {
-            projX = ax; projY = ay;  // 미캘리브레이션 폴백
+            projX = ax; projY = ay;  // 沃섎챷??뵳????됱뵠????媛?
           }
           dspFeedDual(projX, projY);
         }
-        // cfg.liveSegs 세그마다 SSE 전송, 30세그마다 롤링 리셋
+        // cfg.liveSegs ?硫몃젃筌띾뜄??SSE ?袁⑸꽊, 30?硫몃젃筌띾뜄??嚥▲끇彛??귐딅?
         int segNow = dspDualSegTotal();
         if (segNow - liveSegReset >= cfg.liveSegs) {
           liveSegReset = segNow;
           dspUpdateDual();
-          // SSE: 듀얼 PSD 전송
+          // SSE: ????PSD ?袁⑸꽊
           if (liveSSEClient.connected()) {
             char buf[2048];
             int len = snprintf(buf, sizeof(buf),
@@ -1501,7 +1559,7 @@ void loop() {
               "],\"pkx\":%.1f,\"pky\":%.1f}\n\n", pkX, pkY);
             liveSSEClient.write((uint8_t*)buf, len);
           }
-          // 30세그마다 롤링 리셋 (PSD 신선도 유지)
+          // 30?硫몃젃筌띾뜄??嚥▲끇彛??귐딅?(PSD ?醫롪퐨???醫?)
           if (segNow >= 30) {
             dspResetDual();
             liveSegReset = 0;
@@ -1509,7 +1567,7 @@ void loop() {
           if (!liveSSEClient.connected()) { liveMode = false; }
         }
       } else {
-        // 비라이브: 버퍼 오버플로 방지
+        // ??쑬????? 甕곌쑵????살쒔???쨮 獄쎻뫗?
         if (adxlCount > 32) {
           uint8_t drop = adxlCount - 4;
           adxlHead = (adxlHead + drop) % ADXL_BUF_SIZE;
@@ -1519,35 +1577,35 @@ void loop() {
     }
   }
 
-  // ── 3단계 AP 자동복구 + 힙 모니터링 ────────────────
+  // ???? 3??ｍ?AP ?癒?짗癰귣벀??+ ??筌뤴뫀??怨뺤춦 ????????????????????????????????
   if (millis() - lastApCheck > 30000) {
     lastApCheck = millis();
 
-    // 힙 사용량 체크 — 40KB 이하면 WiFi 불안정 위험
+    // ???????筌ｋ똾寃???40KB ??꾨릭筌?WiFi ?븍뜆釉???袁る퓮
     uint32_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < 40000) {
-      Serial.printf("[HEAP] 위험: %u bytes — WiFi 불안정 가능\n", freeHeap);
-      // 힙 부족 시 측정 중이 아니면 리부팅 고려
+      Serial.printf("[HEAP] ?袁る퓮: %u bytes ??WiFi ?븍뜆釉??揶쎛??n", freeHeap);
+      // ???봔鈺???筌β돦??餓λ쵐???袁⑤빍筌??귐????⑥쥓??
       if (measState == MEAS_IDLE || measState == MEAS_DONE) {
         if (freeHeap < 20000) {
-          Serial.println("[HEAP] 치명적 — 리부팅");
+          Serial.println("[HEAP] 燁살꼶梨?????귐???);
           ESP.restart();
         }
       }
     }
 
-    // WiFi 상태 확인 + 복구
+    // WiFi ?怨밴묶 ?類ㅼ뵥 + 癰귣벀??
     if (WiFi.status() == WL_CONNECTED) {
-      // STA 연결 정상
+      // STA ?怨뚭퍙 ?類ㅺ맒
       apFailCount = 0;
     } else if (strcmp(cfg.wifiMode,"sta")==0 && WiFi.status() != WL_CONNECTED) {
-      // STA 연결 끊김 → 재연결 시도
+      // STA ?怨뚭퍙 ??? ????肉겼칰???뺣즲
       apFailCount++;
       Serial.printf("[WiFi] STA reconnect %d/3\n", apFailCount);
       if (apFailCount <= 2) {
         WiFi.reconnect();
       } else {
-        Serial.println("[WiFi] STA failed — fallback to AP");
+        Serial.println("[WiFi] STA failed ??fallback to AP");
         WiFi.disconnect(true);
         delay(100);
         WiFi.mode(WIFI_AP);
@@ -1560,7 +1618,7 @@ void loop() {
       }
     } else if (WiFi.softAPIP() == IPAddress(0,0,0,0)) {
       apFailCount++;
-      Serial.printf("[WiFi] AP 복구 %d/3 (heap: %u)\n", apFailCount, freeHeap);
+      Serial.printf("[WiFi] AP 癰귣벀??%d/3 (heap: %u)\n", apFailCount, freeHeap);
       if (apFailCount <= 1) {
         WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);
       } else if (apFailCount <= 2) {
@@ -1571,12 +1629,12 @@ void loop() {
         delay(200);
         WiFi.mode(WIFI_AP);
         delay(200);
-        WiFi.setTxPower(txPower); // NVS 설정값 유지
+        WiFi.setTxPower(txPower); // NVS ??쇱젟揶??醫?
         WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255,255,255,0));
         WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);
         dnsServer.start(53, "*", AP_IP);
       } else {
-        Serial.println("[WiFi] Stage 3 — 리부팅");
+        Serial.println("[WiFi] Stage 3 ???귐???);
         ESP.restart();
       }
     } else {
@@ -1588,9 +1646,9 @@ void loop() {
     ledState = WiFi.softAPgetStationNum() > 0 ? LED_ON : LED_OFF;
   updateLed();
 
-  // ── GPIO10 리셋 버튼 ──
+  // ???? GPIO10 ?귐딅?甕곌쑵??????
   if (digitalRead(cfg.pinReset) == LOW) {
-    delay(50);  // 디바운스
+    delay(50);  // ?遺얠뺍??곷뮞
     if (digitalRead(cfg.pinReset) == LOW) {
       Serial.println("[RESET] Button pressed");
       delay(100);
@@ -1598,14 +1656,14 @@ void loop() {
     }
   }
 
-  // ── 딥슬립 (5분 무활동) ──
-  // 클라이언트 접속 중이면 타이머 리셋
+  // ???? ?關?녕뵳?(5???얜똾??? ????
+  // ?????곷섧???臾믩꺗 餓λ쵐?좑쭖????????귐딅?
   if (WiFi.softAPgetStationNum() > 0 || measState != MEAS_IDLE) {
     lastActivityMs = millis();
   }
-  // 무활동 5분 → 딥슬립 진입
+  // ?얜똾???5?????關?녕뵳?筌욊쑴??
   if (millis() - lastActivityMs > DEEP_SLEEP_TIMEOUT_MS) {
-    Serial.println("[SLEEP] 5min idle → deep sleep (press reset to wake)");
+    Serial.println("[SLEEP] 5min idle ??deep sleep (press reset to wake)");
     WiFi.mode(WIFI_OFF);
     delay(100);
     esp_deep_sleep_enable_gpio_wakeup(1ULL << cfg.pinReset, ESP_GPIO_WAKEUP_GPIO_LOW);
