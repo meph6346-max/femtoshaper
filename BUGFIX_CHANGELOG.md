@@ -8,6 +8,47 @@
 
 ---
 
+### 2026-04-22 round 14 (Claude Opus 4.7): chasing R13's chain — stack safety + uninit memory
+
+"Chase each fix's chain back around" (user). Round 13 bumped buffers;
+round 14 audits what those bumps broke.
+
+**Fixed (2):**
+
+- **CRITICAL**: round 13's two `char buf[8192]` locals in loop() risked
+  blowing the default 8 KB Arduino-ESP32 loop task stack. Moved to a
+  single file-scope `static char _sseBuf[8192]` and aliased via a C++
+  array reference at each call site so `sizeof(buf)` still works in
+  all length-guards. Single-threaded loop means no concurrent-reuse
+  concern. +8 KB bss, -8 KB stack peak.
+- **MEDIUM**: `char shTypeX[16]; char shTypeY[16];` in handleLoadResult
+  were not zero-initialised before `prefs.getString`. When the NVS key
+  is absent, getString doesn't touch the buffer, so the subsequent
+  `if (!shTypeX[0])` fallback check branched on uninitialised stack
+  garbage. Initialised both to "" on declaration.
+
+**Two items observed but left for future work:**
+- 32 KB `_jbuf` response take ~10-20 ms over WiFi; during that window
+  loop() is blocked and the ADXL hardware FIFO (32 samples = 10 ms at
+  3200 Hz) can overflow. Existing `_adxlOverflowCount` (R33) already
+  tracks this. Bin decimation at low sample rates would help.
+- Default `/api/psd` (no mode, no axis) returns `dspPsdAccum`, which
+  `dspFeed` only populates during the 1 s boot-noise capture. After
+  boot it's zero. UI uses `?mode=print` and `?axis=x/y` (both work);
+  default path is dead. Documented; not reshaping the response without
+  user input.
+
+**Verification:**
+```
+g++ -c -O2 -Wall -Wextra -I/tmp/stubs src/main.cpp    # 0 warnings
+braces/parens balanced
+node --check data/*.js test/*.js                      # all pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND14.md`](./BUGFIX_COMMENT_ABSORB_ROUND14.md).
+
+**Running total:** 177 (before) + 2 = **179 bugs fixed**.
+
 ### 2026-04-22 round 13 (Claude Opus 4.7): buffer-sizing audit at sampleRate extremes — 3 more bugs, one CRITICAL
 
 Methodology: for every byte-sized buffer, compute the worst case at the

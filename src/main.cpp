@@ -43,6 +43,10 @@ WebServer   server(80);
 // (59 bins/axis) and made the PSD endpoint 507-fail at every non-default rate.
 // ESP32-C3 has 400 KB of DRAM; 32 KB static is trivially affordable.
 static char _jbuf[32768];
+// Shared SSE payload buffer - moved off the loop task stack (default 8KB)
+// because two char[8192] locals in loop() left no margin for call frames and
+// risked silent stack overflow. See BF-R14-001.
+static char _sseBuf[8192];
 inline void sendJson(JsonDocument& doc) {
   // R32: measureJson() predicts length before serializing to prevent truncation
   size_t need = measureJson(doc);
@@ -1053,9 +1057,15 @@ void handleLoadResult() {
     doc["hasResult"]=false;doc["freqX"]=0;doc["freqY"]=0;doc["shaperType"]="";doc["confidence"]=0;doc["savedAt"]=0;
   } else {
     float freqX=prefs.getFloat("freqX",0), freqY=prefs.getFloat("freqY",0);
-    char shType[16]=""; prefs.getString("shaperType",shType,sizeof(shType));
-    char shTypeX[16]; prefs.getString("shaperTypeX",shTypeX,sizeof(shTypeX)); if(!shTypeX[0]) strncpy(shTypeX,shType,sizeof(shTypeX)-1);
-    char shTypeY[16]; prefs.getString("shaperTypeY",shTypeY,sizeof(shTypeY)); if(!shTypeY[0]) strncpy(shTypeY,shType,sizeof(shTypeY)-1);
+    // Zero-initialise before getString: if the NVS key is missing the buffer
+    // is NOT touched, leaving uninitialised stack garbage. The subsequent
+    // `if (!shTypeX[0])` check would then behave unpredictably.
+    char shType[16]="", shTypeX[16]="", shTypeY[16]="";
+    prefs.getString("shaperType", shType,  sizeof(shType));
+    prefs.getString("shaperTypeX",shTypeX, sizeof(shTypeX));
+    prefs.getString("shaperTypeY",shTypeY, sizeof(shTypeY));
+    if (!shTypeX[0]) strncpy(shTypeX, shType, sizeof(shTypeX)-1);
+    if (!shTypeY[0]) strncpy(shTypeY, shType, sizeof(shTypeY)-1);
     float conf=prefs.getFloat("confidence",0);
     // savedAt is written by handleSaveResult via putULong. The client uses it as
     // a newer-wins tie-breaker when multiple tabs race to load. Without this
@@ -1903,12 +1913,9 @@ void loop() {
         dspDualNewSeg = false;
         if (liveSSEClient.connected()) {
           dspUpdateDual();
-          // 8KB: at 400Hz sampleRate we have 465 bins/axis. With up to 5 chars
-          // per value + comma that's ~2800 bytes per array, so 2 arrays + header
-          // + trailer is about 5.8KB. Round 10 bumped from 2KB to 4KB but that
-          // still truncated mid-array at 400Hz; 8KB clears the worst case with
-          // margin. ESP32-C3 has ~400KB RAM, so 8KB on the stack is trivial.
-          char buf[8192];  // Room for the full PSD payload plus metadata.
+          // Array reference alias to the file-scope static buffer (preserves
+          // sizeof(buf) in all the len-checks below). See _sseBuf declaration.
+          char (&buf)[sizeof(_sseBuf)] = _sseBuf;
           // fr/bm expose the bin geometry so clients can label axes correctly
           // at any cfg.sampleRate (live chart used to hard-code 3.125Hz/bin).
           int len = snprintf(buf, sizeof(buf),
@@ -1966,12 +1973,10 @@ void loop() {
           liveSegReset = segNow;
           dspUpdateDual();
           if (liveSSEClient.connected()) {
-            // 8KB: at 400Hz sampleRate we have 465 bins/axis. With up to 5 chars
-          // per value + comma that's ~2800 bytes per array, so 2 arrays + header
-          // + trailer is about 5.8KB. Round 10 bumped from 2KB to 4KB but that
-          // still truncated mid-array at 400Hz; 8KB clears the worst case with
-          // margin. ESP32-C3 has ~400KB RAM, so 8KB on the stack is trivial.
-          char buf[8192];
+            // Reuse the shared static SSE buffer (see _sseBuf declaration and
+            // BF-R14-001). Array reference preserves sizeof() behaviour for
+            // the len-checks below.
+            char (&buf)[sizeof(_sseBuf)] = _sseBuf;
             // fr/bm added so clients can derive Hz-per-bin at any sampleRate.
             int len = snprintf(buf, sizeof(buf),
               "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"fr\":%.4f,\"bm\":%d,\"bx\":[",
