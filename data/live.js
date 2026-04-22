@@ -124,9 +124,10 @@ if (typeof window !== 'undefined' && !window._femtoBeforeUnload) {
       if (liveEventSource) {
         liveEventSource.close();
         if (navigator.sendBeacon) navigator.sendBeacon('/api/live/stop');
-        else fetch('/api/live/stop', {method:'POST', keepalive: true}).catch(()=>{});
+        else fetch('/api/live/stop', {method:'POST', keepalive: true})
+          .catch(err => console.warn('[live] unload stop failed:', err));
       }
-    } catch (e) {}
+    } catch (e) { console.warn('[live] beforeunload err:', e); }
   });
 }
 

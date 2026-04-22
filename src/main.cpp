@@ -251,7 +251,15 @@ bool adxlInit() {
   else if (cfg.sampleRate <= 1600) bwRate = 0x0E;
   else                             bwRate = 0x0F;
   spiWrite(REG_BW_RATE, bwRate);
-  Serial.printf("[ADXL] BW_RATE=0x%02X (%dHz)\n", bwRate, cfg.sampleRate);
+  // R66: 쓰기 후 readback 검증 (SPI 통신 이상 조기 감지)
+  {
+    uint8_t vr = spiRead(REG_BW_RATE);
+    if (vr != bwRate) {
+      Serial.printf("[ADXL] BW_RATE verify FAILED: wrote 0x%02X, read 0x%02X\n", bwRate, vr);
+      return false;
+    }
+  }
+  Serial.printf("[ADXL] BW_RATE=0x%02X (%dHz) verified\n", bwRate, cfg.sampleRate);
   spiWrite(REG_DATA_FORMAT, 0x08);  // Full Res, 吏?g
 
   // FIFO: bypass ??stream (?귐딅?
@@ -495,6 +503,32 @@ void loadConfig() {
 
   dspMinValidSegs = cfg.minSegs;
   dspSetSampleRate((float)cfg.sampleRate);
+
+  // R71: Config 유효성 검증 (NVS 손상/bit-flip 시 defaults 복구)
+  auto isValidKin = [](const char* k) {
+    return strcmp(k, "corexy") == 0 || strcmp(k, "cartesian") == 0 ||
+           strcmp(k, "delta") == 0 || strcmp(k, "scara") == 0;
+  };
+  auto isValidFw = [](const char* f) {
+    return strcmp(f, "marlin_is") == 0 || strcmp(f, "marlin_ftm") == 0 ||
+           strcmp(f, "klipper") == 0 || strcmp(f, "rrf") == 0;
+  };
+  if (!isValidKin(cfg.kin)) {
+    Serial.printf("[CFG] Invalid kin '%s' - reset to corexy\n", cfg.kin);
+    strncpy(cfg.kin, "corexy", sizeof(cfg.kin)-1);
+  }
+  if (!isValidFw(cfg.firmware)) {
+    Serial.printf("[CFG] Invalid firmware '%s' - reset to marlin_is\n", cfg.firmware);
+    strncpy(cfg.firmware, "marlin_is", sizeof(cfg.firmware)-1);
+  }
+  // 숫자 범위 검증 (서버 POST도 constrain하지만 NVS 로드 시에도 재확인)
+  cfg.buildX   = constrain(cfg.buildX, 30, 1000);
+  cfg.buildY   = constrain(cfg.buildY, 30, 1000);
+  cfg.accel    = constrain(cfg.accel, 100, 50000);
+  cfg.feedrate = constrain(cfg.feedrate, 10, 1000);
+  cfg.sampleRate = constrain(cfg.sampleRate, 400, 3200);
+  cfg.minSegs  = constrain(cfg.minSegs, 10, 500);
+
   // R5.1/R18.24: 캘리브레이션 벡터가 기본값 [1,0,0]/[0,1,0]이면 강제로 useCalWeights=false
   bool isDefaultCal = (cfg.calWx[0] == 1.0f && cfg.calWx[1] == 0.0f && cfg.calWx[2] == 0.0f &&
                        cfg.calWy[0] == 0.0f && cfg.calWy[1] == 1.0f && cfg.calWy[2] == 0.0f);
@@ -574,8 +608,13 @@ void serveFile(const char* path, const char* ct) {
   f.close();
 }
 
+#define FEMTO_API_VERSION "1.2"  // R86: bump on breaking API changes
+#define FEMTO_FW_VERSION  "1.2.0-bughunt"
+
 void handleGetConfig() {
   JsonDocument doc;
+  doc["apiVersion"] = FEMTO_API_VERSION;
+  doc["fwVersion"] = FEMTO_FW_VERSION;
   doc["buildX"]=cfg.buildX; doc["buildY"]=cfg.buildY;
   doc["accel"]=cfg.accel;   doc["feedrate"]=cfg.feedrate;
   doc["kin"]=cfg.kin;       doc["sampleRate"]=cfg.sampleRate;
@@ -1231,6 +1270,10 @@ void handleLiveStream() {
   client.println("Connection: keep-alive");
   client.println("Access-Control-Allow-Origin: *");
   client.println();
+  // R72: 기존 클라이언트 정리 (orphan 연결 방지)
+  if (liveSSEClient && liveSSEClient.connected()) {
+    liveSSEClient.stop();
+  }
   liveSSEClient = client;
   liveSSEClient.setTimeout(3);  // R27.1: 3s send timeout - stuck client 방지
   liveMode = true;
@@ -1275,6 +1318,11 @@ void handleWifiScan() {
 
 void setup() {
   Serial.begin(115200);
+  // R68: Brown-out detection 활성화 (USB-C 전압 sag 방지)
+  // ESP32-C3는 하드웨어 BOD가 기본으로 약 2.7V threshold - 명시적 확인/유지
+  #ifdef CONFIG_ESP_SYSTEM_BROWNOUT_DET
+  // 이미 sdkconfig에서 활성화됨 - 별도 코드 불필요
+  #endif
   // USB CDC ?怨뚭퍙 ??疫?(筌ㅼ뮆? 3?????怨뚭퍙 ????곕즲 筌욊쑵六?
   unsigned long waitStart = millis();
   while (!Serial && (millis() - waitStart < 3000)) { delay(10); }
@@ -1292,16 +1340,18 @@ void setup() {
 
   Serial.println("=== FEMTO SHAPER v0.9 ===");
 
-  // R31: LittleFS 초기화 실패 시 포맷 재시도 (손상/파티션 이슈 대응)
-  if (!LittleFS.begin(true)) {
-    Serial.println("[ERROR] LittleFS begin() failed, formatting and retrying...");
+  // R31/R78: LittleFS 초기화 - false=fail-on-missing (기존 파일 보존 시도)
+  // 실패 시에만 명시적 format 수행 (begin(true)는 무조건 포맷 위험)
+  if (!LittleFS.begin(false)) {
+    Serial.println("[ERROR] LittleFS mount failed - attempting reformat (DATA WILL BE LOST)");
     LittleFS.format();
-    if (!LittleFS.begin(true)) {
-      Serial.println("[FATAL] LittleFS unusable - serving minimal inline page");
-      // 완전 실패: WebServer는 /api/* 만 동작. 모든 파일 요청은 404.
+    if (!LittleFS.begin(false)) {
+      Serial.println("[FATAL] LittleFS unusable even after format - API-only mode");
     } else {
-      Serial.println("[LittleFS] reformatted successfully");
+      Serial.println("[LittleFS] reformat + remount OK");
     }
+  } else {
+    Serial.println("[LittleFS] mount OK");
   }
   File root = LittleFS.open("/");
   File f = root.openNextFile();

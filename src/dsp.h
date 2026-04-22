@@ -773,15 +773,22 @@ void dspUpdateDual() {
   for (int k = 0; k < DSP_NBINS; k++) {
     float meanX = _dualPsdSumX[k] / _dualWeightSum;
     float meanY = _dualPsdSumY[k] / _dualWeightSum;
+    // R70: NaN/Inf sanity check - 값이 비정상이면 0으로 클램프 (JSON "null" 전송 방지)
+    if (!isfinite(meanX)) { meanX = 0; _dualPsdSumX[k] = 0; }
+    if (!isfinite(meanY)) { meanY = 0; _dualPsdSumY[k] = 0; }
     dspDualPsdX[k] = meanX;
     dspDualPsdY[k] = meanY;
     float msqX = _dualPsdSqX[k] / _dualWeightSum;
     float msqY = _dualPsdSqY[k] / _dualWeightSum;
+    if (!isfinite(msqX)) msqX = 0;
+    if (!isfinite(msqY)) msqY = 0;
     dspDualVarX[k] = (msqX > meanX*meanX) ? msqX - meanX*meanX : 0.0f;
     dspDualVarY[k] = (msqY > meanY*meanY) ? msqY - meanY*meanY : 0.0f;
-    // Phase 2: Jerk PSD (입력 스펙트럼)
-    dspJerkPsdX[k] = _dualJerkPsdSumX[k] / _dualWeightSum;
-    dspJerkPsdY[k] = _dualJerkPsdSumY[k] / _dualWeightSum;
+    // Phase 2: Jerk PSD
+    float jx = _dualJerkPsdSumX[k] / _dualWeightSum;
+    float jy = _dualJerkPsdSumY[k] / _dualWeightSum;
+    dspJerkPsdX[k] = isfinite(jx) ? jx : 0;
+    dspJerkPsdY[k] = isfinite(jy) ? jy : 0;
   }
 }
 
