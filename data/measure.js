@@ -252,12 +252,37 @@ function startPrintPolling() {
         const doneBtn = document.getElementById('btnPmDone');
         if (doneBtn) doneBtn.classList.add('btn-pulse');
       }
-    } catch(e) { /* 폴링 오류 무시 */ }
+    } catch(e) {
+      // R8.2: 폴링 오류를 사일런트로 무시하지 않고 5회 연속 실패 시 중단
+      if (typeof _pollFailCount === 'undefined') window._pollFailCount = 0;
+      window._pollFailCount = (window._pollFailCount || 0) + 1;
+      if (window._pollFailCount > 5) {
+        appLog('logShaper', `<span class="log-err">\u26A0</span> 상태 폴링 실패 반복 — 네트워크 확인: ${e.message}`);
+        stopPrintPolling();
+      }
+    }
   }, 1000);
 }
 
 function stopPrintPolling() {
   if (printPollTimer) { clearInterval(printPollTimer); printPollTimer = null; }
+  if (typeof window !== 'undefined') window._pollFailCount = 0;
+}
+
+// R20.29: 페이지 로드 시 ESP32가 MEAS_PRINT 상태면 폴링 자동 복원
+async function resumePrintMeasureIfActive() {
+  try {
+    const r = await fetch('/api/measure/status');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.state === 'print' || d.measState === 'print') {
+      if (typeof setPrintMeasBtn === 'function') setPrintMeasBtn('running');
+      startPrintPolling();
+      appLog('logShaper', `<span class="log-ok">\u21BB</span> 측정 진행 중 — 폴링 재개 (seg: ${d.segCountX || 0})`);
+    } else if (d.state === 'done' || d.measState === 'done') {
+      if (typeof setPrintMeasBtn === 'function') setPrintMeasBtn('done');
+    }
+  } catch (e) { /* device offline */ }
 }
 
 function setPrintMeasBtn(phase) {

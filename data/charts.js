@@ -2,7 +2,11 @@
 const _charts = {};
 
 function _getOrCreate(canvasId, config) {
-  if (_charts[canvasId]) { _charts[canvasId].destroy(); delete _charts[canvasId]; }
+  // R19.27: destroy() 실패/재호출 방어
+  if (_charts[canvasId]) {
+    try { _charts[canvasId].destroy(); } catch (e) { /* already destroyed */ }
+    delete _charts[canvasId];
+  }
   const canvas = document.getElementById(canvasId);
   if (!canvas) return null;
   _charts[canvasId] = new Chart(canvas.getContext('2d'), config);
@@ -10,9 +14,15 @@ function _getOrCreate(canvasId, config) {
 }
 
 function drawPSD(canvasId, data, peakHz, color, extraPeaks) {
-  if (!document.getElementById(canvasId)) return;
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
   if (!data || data.length === 0) {
-    if (_charts[canvasId]) { _charts[canvasId].destroy(); delete _charts[canvasId]; }
+    if (_charts[canvasId]) {
+      try { _charts[canvasId].destroy(); } catch (e) {}
+      delete _charts[canvasId];
+    }
+    // R19.25: 빈 데이터 시 캔버스 정리 (stale 이미지 제거)
+    try { canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height); } catch (e) {}
     return;
   }
   const labels = data.map(d => typeof d==='object' ? d.f : 0);
@@ -128,7 +138,16 @@ function resetLiveHistory() {
 function drawLiveFrame(liveData, dataY) {
   const canvas = document.getElementById('cLive');
   if (!canvas) return;
-  if (dataY) for (let i=0;i<dataY.length&&i<liveDataY.length;i++) liveDataY[i]=dataY[i];
+  // R19.26: NaN/Infinity 방어 - SSE 패킷 손실 시 Chart.js 크래시 방지
+  if (!Array.isArray(liveData)) liveData = [];
+  for (let i = 0; i < liveData.length; i++) {
+    if (!Number.isFinite(liveData[i])) liveData[i] = 0;
+  }
+  if (dataY) {
+    for (let i = 0; i < dataY.length && i < liveDataY.length; i++) {
+      liveDataY[i] = Number.isFinite(dataY[i]) ? dataY[i] : 0;
+    }
+  }
 
   // 피크 홀드 업데이트
   const maxV = Math.max(...liveData, 1);

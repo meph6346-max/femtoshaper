@@ -165,7 +165,9 @@ function detectPeaks(psd, opts) {
     selected[i].harmonicOrder = 0;
     var bestErr = 1, bestJ = -1, bestR = 0;
     for (var j = 0; j < i; j++) {
-      if (selected[j].f < 15) continue;
+      // R11.2: 하드코딩 15Hz → filterFreqMin (18.75Hz)으로 통일
+      // 저주파 프레임 공진(18~25Hz) 기본파의 하모닉이 누락되던 문제 수정
+      if (selected[j].f < filterFreqMin) continue;
       var ratio = selected[i].f / selected[j].f, rounded = Math.round(ratio);
       if (rounded >= 2 && rounded <= 6) {
         var err = Math.abs(ratio - rounded) / rounded;

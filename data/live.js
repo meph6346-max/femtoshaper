@@ -71,14 +71,14 @@ function toggleLive() {
       } catch(e) {}
     };
     liveEventSource.onerror = () => {
-      // 연결 끊김 → 자동 재연결 (EventSource 기본)
+      // R16.20: 연결 끊김 시 서버에 명시적 stop 전송 (ESP32 리소스 정리)
+      try { fetch('/api/live/stop', {method:'POST'}).catch(()=>{}); } catch (e) {}
     };
   } else {
     ledOn();
-    if (liveEventSource) {
-      liveEventSource.close();
-      liveEventSource = null;
-    }
+    // R16.18: 이중 close 방어 + null 대입 항상 수행
+    try { if (liveEventSource) liveEventSource.close(); } catch (e) {}
+    liveEventSource = null;
     fetch('/api/live/stop', {method:'POST'}).catch(()=>{});
     liveData.fill(0);
     drawLiveFrame(liveData);
@@ -93,6 +93,20 @@ function toggleLive() {
   }
 }
 
+
+// R16.20: 탭 닫기/새로고침 시 SSE stream 서버에 정지 신호 (sendBeacon 사용)
+if (typeof window !== 'undefined' && !window._femtoBeforeUnload) {
+  window._femtoBeforeUnload = true;
+  window.addEventListener('beforeunload', () => {
+    try {
+      if (liveEventSource) {
+        liveEventSource.close();
+        if (navigator.sendBeacon) navigator.sendBeacon('/api/live/stop');
+        else fetch('/api/live/stop', {method:'POST', keepalive: true}).catch(()=>{});
+      }
+    } catch (e) {}
+  });
+}
 
 function initLive() {
   drawLiveFrame(liveData);

@@ -321,4 +321,13 @@ function setLang(lang) {
   });
   const lb = document.getElementById('liveBtnTxt');
   if (lb) lb.textContent = t('btn_start_live');
+  // R17.21: 언어 전환 시 기존 로그 비워 혼용 방지
+  ['logShaper', 'logAdxl', 'logDebug'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.children.length > 0) {
+      el.innerHTML = '<div class="log-line log-info">[' + lang.toUpperCase() + '] ' +
+        (lang === 'ko' ? '언어 전환됨 - 새 메시지부터 적용됩니다' : 'Language changed - applies to new messages') +
+        '</div>';
+    }
+  });
 }

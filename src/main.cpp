@@ -421,7 +421,13 @@ void loadConfig() {
   }
 
   // ?類ㅺ맒 嚥≪뮆諭?
-  prefs.begin("femto", false);
+  // R1.1: read-phase begin() 실패 시 defaults 유지 (cfg 생성자 값)
+  if (!prefs.begin("femto", false)) {
+    Serial.println("[NVS] ERROR: cannot open 'femto' for reading - using defaults");
+    dspMinValidSegs = cfg.minSegs;
+    dspSetSampleRate((float)cfg.sampleRate);
+    return;
+  }
   cfg.buildX     = prefs.getInt("buildX",    cfg.buildX);
   cfg.buildY     = prefs.getInt("buildY",    cfg.buildY);
   cfg.accel      = prefs.getInt("accel",     cfg.accel);
@@ -546,6 +552,21 @@ void handlePostConfig() {
   if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
+
+  // R20.32: 측정 중에는 sampleRate 등 DSP 파라미터 변경 차단 (FFT 빈 해상도 불변 보장)
+  if (measState == MEAS_PRINT) {
+    if (doc["sampleRate"].is<int>() && doc["sampleRate"].as<int>() != cfg.sampleRate) {
+      server.send(409, "application/json",
+        "{\"ok\":false,\"error\":\"cannot_change_sample_rate_during_measurement\"}");
+      return;
+    }
+    if (doc["minSegs"].is<int>() && doc["minSegs"].as<int>() != cfg.minSegs) {
+      server.send(409, "application/json",
+        "{\"ok\":false,\"error\":\"cannot_change_minSegs_during_measurement\"}");
+      return;
+    }
+  }
+
   if (doc["buildX"].is<int>())      cfg.buildX     = doc["buildX"];
   if (doc["buildY"].is<int>())      cfg.buildY     = doc["buildY"];
   if (doc["accel"].is<int>())       cfg.accel      = doc["accel"];
@@ -876,8 +897,17 @@ void loadMeasPsdFromNVS() {
       prefs.getBytes("vy", measVarY, vyLen);
       Serial.println("[NVS] measPsd restored (legacy 59 bins)");
     } else {
+      // R10.1: valid=false일 뿐 아니라 배열도 클리어 - 샘플레이트 불일치 데이터로 분석 방지
       measPsdValid = false;
-      Serial.println("[NVS] measPsd skipped (sample rate/bin metadata mismatch)");
+      measBinMin = 0;
+      measBinCount = 0;
+      memset(measPsdX, 0, sizeof(measPsdX));
+      memset(measPsdY, 0, sizeof(measPsdY));
+      memset(measVarX, 0, sizeof(measVarX));
+      memset(measVarY, 0, sizeof(measVarY));
+      memset(measJerkX, 0, sizeof(measJerkX));
+      memset(measJerkY, 0, sizeof(measJerkY));
+      Serial.println("[NVS] measPsd skipped (sample rate/bin metadata mismatch) - arrays cleared");
     }
   }
   prefs.end();
@@ -1360,6 +1390,23 @@ void setup() {
     delay(500);
     ESP.restart();
   });
+  // R18.23: Factory reset endpoint - 모든 NVS namespace 클리어
+  // POST /api/reset?all=1 → 전체 초기화. 그 외 → reboot만
+  server.on("/api/reset", HTTP_POST, []() {
+    bool all = server.hasArg("all") && server.arg("all") == "1";
+    if (all) {
+      const char* ns[] = {"femto", "femto_bg", "femto_mpsd", "femto_result"};
+      for (int i = 0; i < 4; i++) {
+        if (prefs.begin(ns[i], false)) { prefs.clear(); prefs.end(); }
+      }
+      Serial.println("[RESET] Factory reset - all NVS cleared");
+      server.send(200, "application/json", "{\"ok\":true,\"reset\":\"all\"}");
+    } else {
+      server.send(200, "application/json", "{\"ok\":true,\"reset\":\"none\"}");
+    }
+    delay(500);
+    ESP.restart();
+  });
   server.on("/favicon.ico", []() { server.send(204,"text/plain",""); });
 
   // ???? 筌╈돧?싮뇡???苑??遺얜굡???????????????????????????????????????????????????????
@@ -1475,10 +1522,22 @@ void loop() {
     // v1.0: Print Measure ??????DSP
     else if (measState == MEAS_PRINT) {
       const float scale = 0.0039f * 9.80665f;  // raw ??m/s吏?
+      // R20.35: ADXL disconnect detection - 측정 시작 후 5초간 샘플 미유입 감시
+      static uint32_t _measStartMs = 0;
+      static uint32_t _measSamples = 0;
+      if (_measStartMs == 0) { _measStartMs = millis(); _measSamples = 0; }
+      if (millis() - _measStartMs > 5000 && _measSamples < 100) {
+        Serial.println("[ADXL] disconnect detected during measurement - aborting");
+        measState = MEAS_IDLE;
+        ledState = LED_OFF;
+        _measStartMs = 0; _measSamples = 0;
+        return;
+      }
       while (adxlCount > 0) {
         AdxlSample s = adxlBuf[adxlHead];
         adxlHead  = (adxlHead + 1) % ADXL_BUF_SIZE;
         adxlCount--;
+        _measSamples++;
         float ax = s.x * scale, ay = s.y * scale, az = s.z * scale;
         float projX = cfg.calWx[0]*ax + cfg.calWx[1]*ay + cfg.calWx[2]*az;
         float projY = cfg.calWy[0]*ax + cfg.calWy[1]*ay + cfg.calWy[2]*az;

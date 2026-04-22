@@ -34,6 +34,13 @@ function switchTab(id) {
   }
   if (id === 'live') initLive();
   if (id === 'diag') updateDiagOverview();
+  // R8.1: Shaper 탭이 아닌데 폴링이 돌면 정리 (메모리 누수 방지)
+  // 단, 측정 중(PRINT 상태)에는 유지
+  if (id !== 'shaper' && typeof stopPrintPolling === 'function') {
+    fetch('/api/measure/status').then(r => r.json()).then(d => {
+      if (d.state !== 'print' && d.measState !== 'print') stopPrintPolling();
+    }).catch(() => {});
+  }
   // ?먯씠?????꾪솚 ??PSD 洹몃옒??redraw
   if (id === 'shaper') {
     setTimeout(() => {
@@ -60,9 +67,23 @@ function switchSubTab(id) {
 async function fetchAndRenderPsdDual(measureMetrics) {
   try {
     const res = await fetch('/api/psd?mode=print');
+    // R20.34: HTTP 응답 유효성 검증 (WiFi 부분 응답, 502 등)
+    if (!res.ok) {
+      appLog('logShaper', `<span class="log-err">X</span> PSD fetch HTTP ${res.status}`);
+      return;
+    }
     const d = await res.json();
+    if (!d || d.ok === false) {
+      appLog('logShaper', `<span class="log-err">X</span> ${t('pm_no_data') || 'PSD data unavailable'} (${d && d.err || 'no data'})`);
+      return;
+    }
     if (!d.binsX || !d.binsY || d.binsX.length === 0) {
       appLog('logShaper', `<span class="log-err">X</span> ${t('pm_no_data') || 'PSD data unavailable'}`);
+      return;
+    }
+    // R20.34: 빈 개수 불일치 (패킷 절단) 감지
+    if (d.binsX.length !== d.binsY.length || d.binsX.length < 20) {
+      appLog('logShaper', `<span class="log-err">!</span> Incomplete PSD data (${d.binsX.length}/${d.binsY.length} bins) — WiFi signal?`);
       return;
     }
 
@@ -111,24 +132,33 @@ async function fetchAndRenderPsdDual(measureMetrics) {
 
     // 시뮬레이션 검증: 근접 이중 모드(Δf 6~20Hz)에서 deflation이 3~4배 정확
     // 자동 감지: 첫 두 피크가 근접하고 secondary power가 primary의 30% 이상이면 deflation 실행
+    // R11.1: closeMulti null guard, R12.4: cleanX 빈 배열 가드
     if (typeof detectPeaksDeflation === 'function' && typeof detectPeaks === 'function') {
       const closeMulti = (peaks) => {
-        if (peaks.length < 2) return false;
+        if (!Array.isArray(peaks) || peaks.length < 2) return false;
         const p1 = peaks[0], p2 = peaks[1];
+        if (!p1 || !p2 || !isFinite(p1.f) || !isFinite(p2.f)) return false;
         const df = Math.abs(p1.f - p2.f);
-        const powerRatio = (p2.v || p2.power || 0) / Math.max(p1.v || p1.power || 1, 1e-12);
+        const p1v = (isFinite(p1.v) ? p1.v : null) ?? (isFinite(p1.power) ? p1.power : null);
+        const p2v = (isFinite(p2.v) ? p2.v : null) ?? (isFinite(p2.power) ? p2.power : null);
+        if (p1v == null || p2v == null || p1v <= 0) return false;
+        const powerRatio = p2v / p1v;
         return df < 20 && df > 3 && powerRatio > 0.3;
       };
-      if (closeMulti(peaksX)) {
+      const hasData = (arr) => Array.isArray(arr) && arr.length >= 10;
+      if (hasData(cleanX) && closeMulti(peaksX)) {
         const refined = detectPeaksDeflation(cleanX, (psd) => detectPeaks(psd, { kin, axis: 'x' }), { maxPeaks: 4 });
-        if (refined && refined.length >= 2) {
+        // R12.5: refined 유효성 검증 (모든 피크가 필수 필드 보유)
+        if (Array.isArray(refined) && refined.length >= 2 &&
+            refined.every(p => p && isFinite(p.f) && (isFinite(p.v) || isFinite(p.power)))) {
           peaksX = refined;
           appLog('logShaper', `<span class="log-ok">D</span> X-axis deflation applied (${refined.length} separated peaks)`);
         }
       }
-      if (closeMulti(peaksY)) {
+      if (hasData(cleanY) && closeMulti(peaksY)) {
         const refined = detectPeaksDeflation(cleanY, (psd) => detectPeaks(psd, { kin, axis: 'y' }), { maxPeaks: 4 });
-        if (refined && refined.length >= 2) {
+        if (Array.isArray(refined) && refined.length >= 2 &&
+            refined.every(p => p && isFinite(p.f) && (isFinite(p.v) || isFinite(p.power)))) {
           peaksY = refined;
           appLog('logShaper', `<span class="log-ok">D</span> Y-axis deflation applied (${refined.length} separated peaks)`);
         }
@@ -483,15 +513,29 @@ function showSaveResultBtn(show) {
 
 async function doSaveResult() {
   if (!_lastResultForSave) return;
+  // R15.15: 필수 필드 검증 - freqX/freqY가 없으면 저장 불가
+  const r0 = _lastResultForSave;
+  if (!isFinite(r0.freqX) || !isFinite(r0.freqY) || r0.freqX <= 0 || r0.freqY <= 0) {
+    appLog('logShaper', `<span class="log-err">\u2717</span> Cannot save: invalid frequencies (X:${r0.freqX} Y:${r0.freqY})`);
+    return;
+  }
+  // R20.30: 저장 타임스탬프 첨부 (멀티탭 레이스 감지용)
+  r0.savedAt = Date.now();
   const st = document.getElementById('resultSaveStatus');
   if (st) { st.textContent = t('result_saving'); st.className = 'save-msg save-pending'; st.style.display = 'block'; }
   try {
     const r = await fetch('/api/result', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(_lastResultForSave)
+      body: JSON.stringify(r0)
     });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    // R20.33: NVS 풀(507) 또는 다른 서버 에러 상세 처리
+    if (!r.ok) {
+      if (r.status === 507 || r.status === 500) {
+        throw new Error('NVS full — please factory reset (/api/reset?all=1)');
+      }
+      throw new Error('HTTP ' + r.status);
+    }
     if (st) { st.textContent = '\u2713 '+t('result_save_ok'); st.className = 'save-msg save-ok'; }
     appLog('logShaper', `<span class="log-ok">\u2713</span> ${t('log_nvs_ok')}`);
   } catch(e) {
@@ -603,6 +647,9 @@ function initApp() {
 
 
   // ADXL345 ?곹깭 ?뺤씤 ???곷떒 ?몃뵒耳?댄꽣 + ?곕え 紐⑤뱶 ?먮룞 ?꾪솚
+  // R20.29: 새로고침/재진입 시 측정 폴링 자동 복원
+  if (typeof resumePrintMeasureIfActive === 'function') resumePrintMeasureIfActive();
+
   checkAdxlStatus();
 
   // 珥덇린 李⑦듃

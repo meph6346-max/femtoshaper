@@ -198,6 +198,18 @@ function finalVerdict(mq, rc) {
 
 // ── 종합 판정 함수 (app.js에서 호출) ──────────────────
 function validateResult(opts) {
+  // R13.9: 상위 분석 실패 시 전체 판정이 크래시하지 않도록 안전 반환
+  if (!opts || !opts.xAnalysis || !opts.yAnalysis) {
+    return {
+      verdict: VERDICT_RETRY,
+      overallScore: 0,
+      reason_ko: '분석 데이터 부족 — 재측정 필요',
+      reason_en: 'Incomplete analysis data — please re-measure',
+      mq: { score: 0, issues: [] },
+      rc: { score: 0, issues: [] }
+    };
+  }
+
   // opts: { calibrated, gateRatio, correlation, convergenceX, convergenceY,
   //         activeSegs, segTotal, xAnalysis, yAnalysis, peaksX, peaksY }
   var mq = calcMeasurementQuality({
@@ -210,16 +222,20 @@ function validateResult(opts) {
     segTotal: opts.segTotal || 0
   });
 
+  // R13.8: peaksX/Y 빈 배열 가드 (모든 피크가 하모닉/팬으로 필터링된 경우)
+  var peaksX = Array.isArray(opts.peaksX) ? opts.peaksX : [];
+  var peaksY = Array.isArray(opts.peaksY) ? opts.peaksY : [];
+
   // X/Y 중 더 낮은 confidence 사용
-  var rcX = calcResultConfidence(opts.xAnalysis, opts.peaksX);
-  var rcY = calcResultConfidence(opts.yAnalysis, opts.peaksY);
+  var rcX = calcResultConfidence(opts.xAnalysis, peaksX);
+  var rcY = calcResultConfidence(opts.yAnalysis, peaksY);
   var rc = rcX.score <= rcY.score ? rcX : rcY;
   // 양축 이슈 합산
   rc.issues = [].concat(rcX.issues, rcY.issues);
   rc.score = Math.min(rcX.score, rcY.score);
 
   // v1.0: 사용자 accel 대비 maxAccel 여유 체크
-  var prac = opts.xAnalysis?.practical;
+  var prac = opts.xAnalysis && opts.xAnalysis.practical;
   if (prac && prac.userAccel > 0) {
     var safeMax = Math.min(
       opts.xAnalysis?.recommended?.performance?.maxAccel || 99999,
@@ -265,14 +281,25 @@ function validateResult(opts) {
 // Apply G코드 생성 (변경 없음)
 // ══════════════════════════════════════════════════════
 
-const M493_TYPE = { zv: 1, mzv: 3, ei: 4, '2hump_ei': 5, '3hump_ei': 6 };
+// R14.12: 하이픈/언더스코어 variant 모두 매핑 (2hump_ei, 2hump-ei, 2hump EI)
+const M493_TYPE = {
+  zv: 1, mzv: 3, ei: 4,
+  '2hump_ei': 5, '2hump-ei': 5, '2hump ei': 5,
+  '3hump_ei': 6, '3hump-ei': 6, '3hump ei': 6,
+};
+
+function _normShaperName(name) {
+  if (!name) return 'mzv';
+  return String(name).toLowerCase().replace(/[-\s]+/g, '_');
+}
 
 function generateApplyGcode(opts) {
   const { firmware = 'marlin_is', freqX, freqY,
     shaperType, shaperTypeX, shaperTypeY,
     damping: rawDamping = 0.1, saveToEeprom = false, confidence = 0 } = opts;
-  const stX = shaperTypeX || shaperType || 'mzv';
-  const stY = shaperTypeY || shaperType || 'mzv';
+  // R14.11: 대소문자/하이픈 정규화 일관성 보장
+  const stX = _normShaperName(shaperTypeX || shaperType || 'mzv');
+  const stY = _normShaperName(shaperTypeY || shaperType || 'mzv');
   const damping = (isFinite(rawDamping) && rawDamping > 0) ? rawDamping : 0.1;
   const fx = (isFinite(freqX) && freqX > 0) ? freqX : 40;
   const fy = (isFinite(freqY) && freqY > 0) ? freqY : 40;
@@ -283,33 +310,48 @@ function generateApplyGcode(opts) {
     `; X: ${fx}Hz (${stX}) | Y: ${fy}Hz (${stY}) | D:${damping}`, '',
   ];
   switch (firmware) {
-    case 'marlin_ftm':
-      lines.push(`M493 S1 A${fx} B${fy} C${M493_TYPE[stX] || 3}`);
+    case 'marlin_ftm': {
+      // M493 S1: X 주파수, S2: Y 주파수 (Marlin FTM은 축별 별도 명령)
+      const cx = M493_TYPE[stX] != null ? M493_TYPE[stX] : 3;
+      const cy = M493_TYPE[stY] != null ? M493_TYPE[stY] : 3;
+      lines.push(`M493 S1 A${fx} C${cx}`);
+      lines.push(`M493 S2 A${fy} C${cy}`);
       if (saveToEeprom) lines.push('M500');
       break;
+    }
     case 'marlin_is':
       lines.push(`M593 X F${fx} D${damping}`);
       lines.push(`M593 Y F${fy} D${damping}`);
       if (saveToEeprom) lines.push('M500');
       break;
     case 'klipper':
+      // R14.13: damping_ratio_x/y 반드시 포함 (printer.cfg 필수 항목)
       lines.push(`; [input_shaper]`);
       lines.push(`; shaper_freq_x: ${fx}`);
       lines.push(`; shaper_freq_y: ${fy}`);
       lines.push(`; shaper_type_x: ${stX}`);
       lines.push(`; shaper_type_y: ${stY}`);
+      lines.push(`; damping_ratio_x: ${damping}`);
+      lines.push(`; damping_ratio_y: ${damping}`);
       break;
     case 'rrf':
-      lines.push(`M593 P"${stX}" F${fx}`);
+      // R14.14: Y축 명령 누락 버그 수정 — P"type" 형식으로 X/Y 모두 출력
+      lines.push(`M593 P"${stX}" F${fx} X1`);
+      lines.push(`M593 P"${stY}" F${fy} Y1`);
       if (saveToEeprom) lines.push('M500');
       break;
   }
   return lines.join('\n');
 }
 
-// ── 판정 라벨 ─────────────────────────────────────────
+// ── 판정 라벨 (R13.7: 알 수 없는 verdict 경고, R17.22: 언어 대응) ──
 function verdictLabel(v) {
-  if (v === VERDICT_APPLY)  return { text:'APPLY',  icon:'✅', color:'#A3BE8C' };
-  if (v === VERDICT_REVIEW) return { text:'REVIEW', icon:'⚠️', color:'#EBCB8B' };
-  return                           { text:'RETRY',  icon:'❌', color:'#BF616A' };
+  const lang = (typeof curLang !== 'undefined') ? curLang : 'en';
+  const isKo = lang === 'ko';
+  if (v === VERDICT_APPLY)  return { text: isKo ? '적용'      : 'APPLY',  icon:'\u2705', color:'#A3BE8C' };
+  if (v === VERDICT_REVIEW) return { text: isKo ? '검토'      : 'REVIEW', icon:'\u26A0',  color:'#EBCB8B' };
+  if (v === VERDICT_RETRY)  return { text: isKo ? '재측정'    : 'RETRY',  icon:'\u274C',  color:'#BF616A' };
+  // 알 수 없는 verdict 문자열 → 경고 + RETRY 반환
+  if (typeof console !== 'undefined' && console.warn) console.warn('[verdictLabel] unknown verdict:', v);
+  return { text: isKo ? '불명'/*unknown*/ : 'UNKNOWN', icon:'\u2753', color:'#888' };
 }
