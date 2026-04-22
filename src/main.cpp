@@ -417,6 +417,11 @@ void handleAdxlStatus() {
   doc["sampleRate"] = cfg.sampleRate;
   doc["freeHeap"]   = ESP.getFreeHeap();
   doc["uptime"]     = millis();
+  // R33 overflow counter was previously only visible via Serial log.
+  // Exposing it here lets diagnostics / the client warn about loop stalls
+  // (WiFi scans, blocking handlers, etc. - see R15 for fixes that were
+  // informed by its existence).
+  doc["fifoOverflowCount"] = _adxlOverflowCount;
   sendJson(doc);
 }
 
