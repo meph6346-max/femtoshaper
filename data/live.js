@@ -40,10 +40,19 @@ function toggleLive() {
       liveRunning = false;
       return;
     }
-    // SSE
-    liveEventSource = new EventSource('/api/live/stream');
-    // R38: - 10 stale
+    // SSE. We wrap EventSource setup in a function so the watchdog below
+    // can re-attach the onmessage / onerror handlers after a stale-reset.
+    // Previously the watchdog did `new EventSource(...)` without rewiring
+    // handlers, so the first watchdog-triggered reconnect left the client
+    // permanently frozen (new socket, no data sink).
     let _liveLastMsgAt = Date.now();
+    const _attachLiveHandlers = (src) => {
+      src.addEventListener('message', () => { _liveLastMsgAt = Date.now(); });
+      src.onmessage = _onLiveMessage;
+      src.onerror = _onLiveError;
+    };
+    liveEventSource = new EventSource('/api/live/stream');
+    // R38: stale-connection watchdog (10s)
     if (window._liveWatchdog) clearInterval(window._liveWatchdog);
     window._liveWatchdog = setInterval(() => {
       if (!liveRunning) { clearInterval(window._liveWatchdog); return; }
@@ -52,11 +61,15 @@ function toggleLive() {
         try { if (liveEventSource) liveEventSource.close(); } catch(e) {}
         liveEventSource = null;
         _liveLastMsgAt = Date.now();
-        try { liveEventSource = new EventSource('/api/live/stream'); } catch(e) {}
+        try {
+          liveEventSource = new EventSource('/api/live/stream');
+          _attachLiveHandlers(liveEventSource);
+        } catch(e) {}
       }
     }, 5000);
-    liveEventSource.addEventListener('message', () => { _liveLastMsgAt = Date.now(); });
-    liveEventSource.onmessage = (evt) => {
+    // Handlers declared below, then attached. Declaring first keeps the
+    // watchdog reset path simple (same function reference every time).
+    const _onLiveMessage = (evt) => {
       try {
         const d = JSON.parse(evt.data);
         // Propagate bin geometry to chart renderers (charts.js reads
@@ -94,10 +107,11 @@ function toggleLive() {
         }
       } catch(e) {}
     };
-    liveEventSource.onerror = () => {
-      // R16.20: stop (ESP32 )
+    const _onLiveError = () => {
+      // R16.20: stop (ESP32 will GC the socket)
       try { fetch('/api/live/stop', {method:'POST'}).catch(()=>{}); } catch (e) {}
     };
+    _attachLiveHandlers(liveEventSource);
   } else {
     ledOn();
     // R16.18: close + null

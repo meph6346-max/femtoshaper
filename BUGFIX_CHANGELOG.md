@@ -8,6 +8,40 @@
 
 ---
 
+### 2026-04-22 round 16 (Claude Opus 4.7): client-side chain — watchdog handler rewire
+
+R10-R15 chased the server-side chain. R16 carries the same "chase the
+chain" discipline to the client. Found one CRITICAL latent bug.
+
+**Fixed (1):**
+
+- **CRITICAL**: Live SSE watchdog (`data/live.js`) re-created the
+  EventSource on stale-detect but NEVER re-attached the
+  `addEventListener('message', ...)` / `onmessage` / `onerror`
+  handlers. The new socket received SSE frames but nothing parsed
+  them, so `_liveLastMsgAt` stayed at reset time and the next watchdog
+  tick fired again — infinite loop of zombie reconnects. User sees
+  "LIVE" indicator on but zero data until page reload. Triggers on
+  any stale-connection detection (WiFi flicker, etc). Extracted
+  handler attachment into `_attachLiveHandlers(src)` that's called
+  both at init and on every watchdog reset; `_onLiveMessage` and
+  `_onLiveError` declared as named consts so the same function
+  reference is reused (no handler leaks).
+
+Chain observation: R16 is the client-side analog of R11's server-side
+BW_RATE-not-reprogrammed bug. Same shape: resource A changes state
+but resource B derived from A doesn't re-derive.
+
+**Verification:**
+```
+node --check data/live.js                          # pass
+g++ -c -O2 -Wall -Wextra on main.cpp               # 0 warnings
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND16.md`](./BUGFIX_COMMENT_ABSORB_ROUND16.md).
+
+**Running total:** 182 (before) + 1 = **183 bugs fixed**.
+
 ### 2026-04-22 round 15 (Claude Opus 4.7): long-blocking operations + partial-apply POSTs
 
 Chain pattern continues: R10-R15 each round follows the chain from the
