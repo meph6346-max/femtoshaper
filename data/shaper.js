@@ -581,10 +581,15 @@ function fitLorentzian(psd, peakIdx) {
     if (Math.abs(step) < 0.01) break; // 0.01Hz
   }
 
-  // 4 : R
+  // 4: R^2. Divide mean by the actual sample count - peakIdx near 0 or
+  // psd.length truncates the slice, and dividing by a fixed 2*fitRange+1
+  // under-estimated meanV at edges, inflating ssTot and pushing rSquared
+  // above the 0.5 acceptance threshold on poor fits.
+  const sliceArr = psd.slice(Math.max(0, peakIdx - fitRange), peakIdx + fitRange + 1);
+  const meanV = sliceArr.length > 0
+    ? sliceArr.reduce((s, p) => s + p.v, 0) / sliceArr.length
+    : 0;
   let ssRes = 0, ssTot = 0;
-  const meanV = psd.slice(Math.max(0, peakIdx - fitRange), peakIdx + fitRange + 1)
-    .reduce((s, p) => s + p.v, 0) / (2 * fitRange + 1);
   for (let di = -fitRange; di <= fitRange; di++) {
     const idx = peakIdx + di;
     if (idx < 0 || idx >= psd.length) continue;

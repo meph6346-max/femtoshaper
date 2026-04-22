@@ -564,6 +564,31 @@ void loadConfig() {
   cfg.buildY   = constrain(cfg.buildY, 30, 1000);
   cfg.accel    = constrain(cfg.accel, 100, 50000);
   cfg.feedrate = constrain(cfg.feedrate, 10, 1000);
+  // Shaper parameters: same sanity ranges as the POST validator. Without these
+  // a corrupted NVS read could feed 0 or NaN into the shaper math at boot.
+  if (!isfinite(cfg.scv)      || cfg.scv      <= 0.0f || cfg.scv      > 1000.0f) cfg.scv      = 5.0f;
+  if (!isfinite(cfg.damping)  || cfg.damping  <= 0.0f || cfg.damping  >= 1.0f)   cfg.damping  = 0.1f;
+  if (!isfinite(cfg.targetSm) || cfg.targetSm <= 0.0f || cfg.targetSm >= 1.0f)   cfg.targetSm = 0.12f;
+  // Snap to discrete hardware-supported values so NVS bit-flips or stale
+  // pre-validator writes don't produce undefined WiFi / filter behaviour.
+  {
+    const int tx[] = {2, 5, 8, 11, 15, 20};
+    int best = tx[0], bestDist = abs(cfg.txPower - best);
+    for (size_t i = 1; i < sizeof(tx)/sizeof(tx[0]); i++) {
+      int d = abs(cfg.txPower - tx[i]);
+      if (d < bestDist) { bestDist = d; best = tx[i]; }
+    }
+    cfg.txPower = best;
+  }
+  {
+    const int ph[] = {0, 50, 60};
+    int best = ph[0], bestDist = abs(cfg.powerHz - best);
+    for (size_t i = 1; i < sizeof(ph)/sizeof(ph[0]); i++) {
+      int d = abs(cfg.powerHz - ph[i]);
+      if (d < bestDist) { bestDist = d; best = ph[i]; }
+    }
+    cfg.powerHz = best;
+  }
   // ADXL345 only supports the discrete rates {400, 800, 1600, 3200}. Snap the
   // stored cfg value to the nearest supported rate so the DSP freq axis (which
   // uses cfg.sampleRate) stays aligned with the actual hardware rate. Without
@@ -809,10 +834,22 @@ void handlePostConfig() {
     cfg.calWy[0] = doc["calWy"][0]; cfg.calWy[1] = doc["calWy"][1]; cfg.calWy[2] = doc["calWy"][2];
     cfg.useCalWeights = true;
   }
-  // Phase 5: SCV / damping / targetSm (shaper parameters)
-  if (doc["scv"].is<float>())      cfg.scv        = doc["scv"].as<float>();
-  if (doc["damping"].is<float>())  cfg.damping    = doc["damping"].as<float>();
-  if (doc["targetSm"].is<float>()) cfg.targetSm   = doc["targetSm"].as<float>();
+  // Phase 5: SCV / damping / targetSm (shaper parameters).
+  // Validate ranges so downstream shaper math (division, sqrt(1 - damping^2),
+  // bisection over smoothing) cannot see 0/negative/NaN and silently produce
+  // garbage shapers. Typical: scv 2-20 mm/s, damping 0.02-0.5, targetSm 0.05-0.3.
+  if (doc["scv"].is<float>()) {
+    float v = doc["scv"].as<float>();
+    if (isfinite(v) && v > 0.0f && v <= 1000.0f) cfg.scv = v;
+  }
+  if (doc["damping"].is<float>()) {
+    float v = doc["damping"].as<float>();
+    if (isfinite(v) && v > 0.0f && v < 1.0f) cfg.damping = v;
+  }
+  if (doc["targetSm"].is<float>()) {
+    float v = doc["targetSm"].as<float>();
+    if (isfinite(v) && v > 0.0f && v < 1.0f) cfg.targetSm = v;
+  }
   if (doc["demoMode"].is<bool>())  cfg.demoMode   = doc["demoMode"].as<bool>();
   if (doc["firmware"].is<const char*>()) strncpy(cfg.firmware, doc["firmware"] | "marlin_is", sizeof(cfg.firmware)-1);
   if (doc["eepromSave"].is<bool>()) cfg.eepromSave = doc["eepromSave"];
@@ -838,7 +875,20 @@ void handlePostConfig() {
   }
   cfg.pinSCK = newSCK; cfg.pinMISO = newMISO; cfg.pinMOSI = newMOSI;
   cfg.pinCS = newCS; cfg.pinINT1 = newINT1; cfg.pinLED = newLED; cfg.pinReset = newRst;
-  if (doc["txPower"].is<int>())  cfg.txPower  = doc["txPower"];
+  if (doc["txPower"].is<int>()) {
+    // txPower must match one of the discrete ESP32-C3 Wi-Fi power levels.
+    // The setup() switch maps the accepted values to WIFI_POWER_* enums;
+    // unaccepted values fall to the 8.5dBm default, making the NVS-stored
+    // value silently diverge from actual hardware state. Snap here.
+    int t = doc["txPower"].as<int>();
+    int allowed[] = {2, 5, 8, 11, 15, 20};
+    int best = allowed[0], bestDist = abs(t - best);
+    for (size_t i = 1; i < sizeof(allowed)/sizeof(allowed[0]); i++) {
+      int d = abs(t - allowed[i]);
+      if (d < bestDist) { bestDist = d; best = allowed[i]; }
+    }
+    cfg.txPower = best;
+  }
   if (doc["minSegs"].is<int>()) {
     cfg.minSegs = constrain(doc["minSegs"].as<int>(), 10, 500);
     dspMinValidSegs = cfg.minSegs;  // keep DSP validity threshold in sync
@@ -856,7 +906,19 @@ void handlePostConfig() {
     if (cfg.hostname[0]=='\0' || (!(cfg.hostname[0]>='a'&&cfg.hostname[0]<='z') && !(cfg.hostname[0]>='A'&&cfg.hostname[0]<='Z')))
       strncpy(cfg.hostname, "femto", sizeof(cfg.hostname)-1);
   }
-  if (doc["powerHz"].is<int>())      cfg.powerHz  = doc["powerHz"].as<int>();
+  if (doc["powerHz"].is<int>()) {
+    // Only 0 (off), 50 or 60 make sense for a mains-notch filter; anything
+    // else would sit in NVS as a bogus value and confuse future features
+    // that try to use it. Snap to nearest.
+    int p = doc["powerHz"].as<int>();
+    int allowed[] = {0, 50, 60};
+    int best = allowed[0], bestDist = abs(p - best);
+    for (size_t i = 1; i < sizeof(allowed)/sizeof(allowed[0]); i++) {
+      int d = abs(p - allowed[i]);
+      if (d < bestDist) { bestDist = d; best = allowed[i]; }
+    }
+    cfg.powerHz = best;
+  }
   if (doc["liveSegs"].is<int>()) {
     cfg.liveSegs = doc["liveSegs"].as<int>();
     if (cfg.liveSegs < 1) cfg.liveSegs = 1;

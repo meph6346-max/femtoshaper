@@ -8,6 +8,48 @@
 
 ---
 
+### 2026-04-22 round 12 (Claude Opus 4.7): numerical edges + validation gaps — 6 more bugs
+
+Methodology: every `doc["X"].as<float/int>()` without a subsequent bounds
+check is a silent-corruption vector. Paired with numerical edge-case
+check on shaper math.
+
+**Fixed (6):**
+
+- **MEDIUM**: `fitLorentzian` in `data/shaper.js` divided the meanV for
+  R^2 by a fixed `2*fitRange+1`, but `slice()` truncates near array edges,
+  so at peakIdx near 0 or `psd.length-1` the mean was under-estimated,
+  inflating ssTot and letting poor Lorentzian fits pass the `r^2 >= 0.5`
+  acceptance gate. Fixed to divide by the actual slice length.
+- **MEDIUM**: `/api/config` accepted any float for `scv`. 0, negative,
+  NaN, Infinity would all end up in `calcSmoothing` / `calcMaxAccel`
+  and poison shaper recommendations. Now rejects non-finite or out-of-
+  range values silently.
+- **MEDIUM**: same shape for `damping` (must be in (0, 1)) and
+  `targetSm` (must be in (0, 1)). `damping >= 1` gives
+  `sqrt(1 - damping^2) = NaN` in `estimateShaperResponse`, poisoning
+  every shaper's score.
+- **LOW**: `/api/config` did not snap `txPower` to ESP32-C3's discrete
+  `{2,5,8,11,15,20}` dBm set. Any non-matching value made the radio fall
+  back to 8.5 dBm silently while NVS kept the bogus number. Fixed to
+  snap to nearest supported on POST.
+- **LOW**: same snap for `powerHz` -> `{0, 50, 60}`.
+- **MEDIUM**: `loadConfig` did not sanity-check NVS-loaded shaper params
+  / txPower / powerHz. An NVS bit-flip or stale pre-validator write
+  would inject bogus values at boot, bypassing the POST validators
+  entirely. Added boot-time clamp + snap that mirrors the POST path.
+
+**Verification:**
+```
+g++ -c -O2 -Wall -Wextra -I/tmp/stubs src/main.cpp     # 0 warnings
+braces/parens balanced
+node --check data/*.js test/*.js                       # all pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND12.md`](./BUGFIX_COMMENT_ABSORB_ROUND12.md).
+
+**Running total:** 168 (before) + 6 = **174 bugs fixed**.
+
 ### 2026-04-22 round 11 (Claude Opus 4.7): runtime-state audit — 6 more bugs, one CRITICAL
 
 User demanded deeper digging ("a tiny bug can distort accuracy heavily").
