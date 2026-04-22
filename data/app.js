@@ -370,6 +370,7 @@ function updateShaperUI(peakX, peakY, xAn, yAn, psdX, psdY) {
 
 function toggleApplyPanel() {
   const panel = document.getElementById('applyPanel');
+  if (!panel) return;
   panel.classList.toggle('open');
   if (panel.classList.contains('open')) updateApplyPreview();
 }
@@ -407,7 +408,7 @@ function downloadApply() {
 
 function copyApply() {
   navigator.clipboard.writeText(document.getElementById('apPreview')?.textContent || '').catch(e => console.warn('API:', e.message));
-  appLog('logShaper', `<span class="log-ok">??/span> ${t('log_applied')}`);
+  appLog('logShaper', `<span class="log-ok">\u2713</span> ${t('log_applied')}`);
 }
 
 let _lastResultForSave = null;
@@ -430,11 +431,11 @@ async function doSaveResult() {
       body: JSON.stringify(_lastResultForSave)
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    if (st) { st.textContent = '??'+t('result_save_ok'); st.className = 'save-msg save-ok'; }
-    appLog('logShaper', `<span class="log-ok">??/span> ${t('log_nvs_ok')}`);
+    if (st) { st.textContent = '\u2713 '+t('result_save_ok'); st.className = 'save-msg save-ok'; }
+    appLog('logShaper', `<span class="log-ok">\u2713</span> ${t('log_nvs_ok')}`);
   } catch(e) {
-    if (st) { st.textContent = '??'+t('result_save_fail')+e.message; st.className = 'save-msg save-err'; }
-    appLog('logShaper', `<span class="log-err">??/span> ${t('log_nvs_fail')}${e.message}`);
+    if (st) { st.textContent = '\u2717 '+t('result_save_fail')+e.message; st.className = 'save-msg save-err'; }
+    appLog('logShaper', `<span class="log-err">\u2717</span> ${t('log_nvs_fail')}${e.message}`);
   }
   setTimeout(() => { if (st) st.style.display = 'none'; }, 4000);
 }
@@ -507,7 +508,7 @@ function loadResultFromESP() {
       };
       runDiagStage1(fX, fY, peakX, peakY);
       const srcNote = realPsdX ? '' : t('log_psd_note');      appLog('logShaper',
-        `<span class="log-ok">??/span> ${t('log_restored')}` +
+        `<span class="log-ok">\u2713</span> ${t('log_restored')}` +
         `X:<span class="log-val">${peakX.toFixed(1)}Hz</span> ` +
         `Y:<span class="log-val">${peakY.toFixed(1)}Hz</span>${srcNote}`
       );

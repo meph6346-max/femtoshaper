@@ -588,7 +588,7 @@ void handlePostConfig() {
       char c = cfg.hostname[i];
       if (!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-')) cfg.hostname[i] = '-';
     }
-    if (cfg.hostname[0]=='\0' || !(cfg.hostname[0]>='a'&&cfg.hostname[0]<='z') && !(cfg.hostname[0]>='A'&&cfg.hostname[0]<='Z'))
+    if (cfg.hostname[0]=='\0' || (!(cfg.hostname[0]>='a'&&cfg.hostname[0]<='z') && !(cfg.hostname[0]>='A'&&cfg.hostname[0]<='Z')))
       strncpy(cfg.hostname, "femto", sizeof(cfg.hostname)-1);
   }
   if (doc["powerHz"].is<int>())      cfg.powerHz  = doc["powerHz"].as<int>();
@@ -1091,7 +1091,7 @@ void handleMeasStatus() {
   if (st.segCount > 0 && st.peakPower > 0) {
     float noise = 0; int nc = 0;
     for (int k = dspBinMin(); k <= dspBinMax(); k++) {
-      if (abs(k * dspFreqRes() - st.peakFreq) > 15) { noise += dspPsdAccum[k]; nc++; }
+      if (fabs(k * dspFreqRes() - st.peakFreq) > 15.0f) { noise += dspPsdAccum[k]; nc++; }
     }
     if (nc > 0 && noise/nc > 0) doc["snrDb"] = 10.0f * log10f(st.peakPower / (noise/nc));
   }
@@ -1420,6 +1420,7 @@ void loop() {
           // ?袁⑥뺘 ???뇧 = (?袁⑷퍥*10 - ?袁⑥뺘*5) / 5
           float eFirst = 0, eSecond = 0;
           for (int k = dspBinMin(); k <= dspBinMax(); k++) {
+            if (_segCount <= 0) break;
             float totalAvg = _psdSum[k] / (float)_segCount;
             float firstAvg = dspBgPsd[k];
             float secondAvg = (_segCount >= 10)
@@ -1480,22 +1481,22 @@ void loop() {
             dspDualSegCountX(), dspDualSegCountY(), dspDualSegTotal(), dspDualGateRatio());
           int binMin = dspBinMin();
           int binMax = dspBinMax();
-          for (int k=binMin; k<=binMax; k++) {
-            if (k>binMin) buf[len++]=',';
+          for (int k=binMin; k<=binMax && len<(int)sizeof(buf)-12; k++) {
+            if (k>binMin && len<(int)sizeof(buf)-2) buf[len++]=',';
             float v = dspDualPsdX[k];
-            if (v<0.01f) { buf[len++]='0'; }
+            if (v<0.01f && len<(int)sizeof(buf)-2) { buf[len++]='0'; }
             else if (v>=100) len+=snprintf(buf+len,sizeof(buf)-len,"%.0f",v);
-            else if (v>=1) len+=snprintf(buf+len,sizeof(buf)-len,"%.1f",v);
-            else len+=snprintf(buf+len,sizeof(buf)-len,"%.2f",v);
+            else if (v>=1)   len+=snprintf(buf+len,sizeof(buf)-len,"%.1f",v);
+            else             len+=snprintf(buf+len,sizeof(buf)-len,"%.2f",v);
           }
           len += snprintf(buf+len, sizeof(buf)-len, "],\"by\":[");
-          for (int k=binMin; k<=binMax; k++) {
-            if (k>binMin) buf[len++]=',';
+          for (int k=binMin; k<=binMax && len<(int)sizeof(buf)-12; k++) {
+            if (k>binMin && len<(int)sizeof(buf)-2) buf[len++]=',';
             float v = dspDualPsdY[k];
-            if (v<0.01f) { buf[len++]='0'; }
+            if (v<0.01f && len<(int)sizeof(buf)-2) { buf[len++]='0'; }
             else if (v>=100) len+=snprintf(buf+len,sizeof(buf)-len,"%.0f",v);
-            else if (v>=1) len+=snprintf(buf+len,sizeof(buf)-len,"%.1f",v);
-            else len+=snprintf(buf+len,sizeof(buf)-len,"%.2f",v);
+            else if (v>=1)   len+=snprintf(buf+len,sizeof(buf)-len,"%.1f",v);
+            else             len+=snprintf(buf+len,sizeof(buf)-len,"%.2f",v);
           }
           len += snprintf(buf+len, sizeof(buf)-len,
             "],\"co\":%.2f,\"cx\":%.1f,\"cy\":%.1f,\"ar\":%d}\n\n",
@@ -1532,26 +1533,26 @@ void loop() {
           if (liveSSEClient.connected()) {
             char buf[2048];
             int len = snprintf(buf, sizeof(buf),
-              "data: {\"m\":\"live\",\"sx\":%d,\"bx\":[",
-              dspDualSegTotal());
+              "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"bx\":[",
+              dspDualSegTotal(), dspDualSegTotal());
             int binMin = dspBinMin();
             int binMax = dspBinMax();
-            for (int k=binMin; k<=binMax; k++) {
-              if (k>binMin) buf[len++]=',';
+            for (int k=binMin; k<=binMax && len<(int)sizeof(buf)-12; k++) {
+              if (k>binMin && len<(int)sizeof(buf)-2) buf[len++]=',';
               float v = dspDualPsdX[k];
-              if (v<0.01f) { buf[len++]='0'; }
+              if (v<0.01f && len<(int)sizeof(buf)-2) { buf[len++]='0'; }
               else if (v>=100) len+=snprintf(buf+len,sizeof(buf)-len,"%.0f",v);
-              else if (v>=1) len+=snprintf(buf+len,sizeof(buf)-len,"%.1f",v);
-              else len+=snprintf(buf+len,sizeof(buf)-len,"%.2f",v);
+              else if (v>=1)   len+=snprintf(buf+len,sizeof(buf)-len,"%.1f",v);
+              else             len+=snprintf(buf+len,sizeof(buf)-len,"%.2f",v);
             }
             len += snprintf(buf+len, sizeof(buf)-len, "],\"by\":[");
-            for (int k=binMin; k<=binMax; k++) {
-              if (k>binMin) buf[len++]=',';
+            for (int k=binMin; k<=binMax && len<(int)sizeof(buf)-12; k++) {
+              if (k>binMin && len<(int)sizeof(buf)-2) buf[len++]=',';
               float v = dspDualPsdY[k];
-              if (v<0.01f) { buf[len++]='0'; }
+              if (v<0.01f && len<(int)sizeof(buf)-2) { buf[len++]='0'; }
               else if (v>=100) len+=snprintf(buf+len,sizeof(buf)-len,"%.0f",v);
-              else if (v>=1) len+=snprintf(buf+len,sizeof(buf)-len,"%.1f",v);
-              else len+=snprintf(buf+len,sizeof(buf)-len,"%.2f",v);
+              else if (v>=1)   len+=snprintf(buf+len,sizeof(buf)-len,"%.1f",v);
+              else             len+=snprintf(buf+len,sizeof(buf)-len,"%.2f",v);
             }
             float pkX = dspDualFindPeak(dspDualPsdX, 1, NULL);
             float pkY = dspDualFindPeak(dspDualPsdY, 1, NULL);
