@@ -39,13 +39,30 @@ WebServer   server(80);
 // v0.9: String ??볤탢 ???⑤벊? JSON ?臾먮뼗 甕곌쑵??(?????젶??獄쎻뫗?)
 static char _jbuf[8192];  // v1.0: ????PSD (binsX+binsY+bgPsd) ~6.2KB
 inline void sendJson(JsonDocument& doc) {
+  // R32: measureJson() predicts length before serializing to prevent truncation
+  size_t need = measureJson(doc);
+  if (need + 1 >= sizeof(_jbuf)) {
+    Serial.printf("[JSON] Response too large: %u > %u
+", (unsigned)need, (unsigned)sizeof(_jbuf));
+    server.send(507, "application/json", "{\"ok\":false,\"err\":\"JSON_too_large\"}");
+    return;
+  }
   size_t len = serializeJson(doc, _jbuf, sizeof(_jbuf));
-  if (len >= sizeof(_jbuf)) {
-    // 甕곌쑵????살쒔???쨮??????롡뵛 JSON ?????癒?쑎 獄쏆꼹??
-    server.send(500, "application/json", "{\"ok\":false,\"err\":\"JSON too large\"}");
+  if (len == 0 || len >= sizeof(_jbuf)) {
+    server.send(500, "application/json", "{\"ok\":false,\"err\":\"JSON_serialize_failed\"}");
     return;
   }
   server.send(200, "application/json", _jbuf);
+}
+
+// R25: POST body size limit (DoS prevention). All handlePost* handlers call this.
+static bool checkBodyLimit(size_t maxBytes = 8192) {
+  if (!server.hasArg("plain")) return false;
+  if (server.arg("plain").length() > maxBytes) {
+    server.send(413, "application/json", "{\"ok\":false,\"error\":\"body_too_large\"}");
+    return false;
+  }
+  return true;
 }
 DNSServer   dnsServer;
 Preferences prefs;
@@ -259,8 +276,17 @@ bool adxlInit() {
 }
 
 // ???? FIFO ??뺤쟿??????????????????????????????????????????????????????????????????????????????
+static uint32_t _adxlOverflowCount = 0;  // R33: FIFO overflow 이벤트 카운터
 static void adxlDrainFifo() {
-  uint8_t hwCnt = spiRead(REG_FIFO_STATUS) & 0x3F;
+  uint8_t rawStatus = spiRead(REG_FIFO_STATUS);
+  // R33: ADXL345 FIFO_STATUS bit 7 = overflow 표시 - loop() 지연 감지
+  if (rawStatus & 0x80) {
+    _adxlOverflowCount++;
+    if ((_adxlOverflowCount % 10) == 1) {
+      Serial.printf("[ADXL] FIFO overflow #%u - main loop too slow\n", (unsigned)_adxlOverflowCount);
+    }
+  }
+  uint8_t hwCnt = rawStatus & 0x3F;
   for (uint8_t i = 0; i < hwCnt; i++) {
     int16_t x, y, z;
     spiReadXYZ(x, y, z);
@@ -561,7 +587,7 @@ void handleGetConfig() {
 }
 
 void handlePostConfig() {
-  if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
+  if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
 
@@ -720,7 +746,7 @@ void handleGetNoise() {
 }
 
 void handleLed() {
-  if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
+  if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
   const char* st = doc["state"] | "off";
@@ -731,7 +757,7 @@ void handleLed() {
 }
 
 void handleSaveResult() {
-  if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
+  if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
   prefs.begin("femto_res",false);
@@ -768,7 +794,7 @@ void handleLoadResult() {
 }
 
 void handleSaveBelt() {
-  if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
+  if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
   prefs.begin("femto_belt",false);
@@ -794,7 +820,7 @@ void handleLoadBelt() {
 }
 
 void handleSaveDiag() {
-  if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
+  if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
   prefs.begin("femto_diag",false);
@@ -1030,7 +1056,7 @@ DspStatus st = dspGetStatus();
 // ???? POST /api/measure ??筌β돦????뽯선 ????????????????????????????????????
 // body: {"cmd":"print_start"|"print_stop"|"stop"|"reset"}
 void handleMeasure() {
-  if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
+  if (!checkBodyLimit(8192)) return;
   JsonDocument req;
   if (deserializeJson(req, server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
   const char* cmd = req["cmd"] | "reset";
@@ -1174,6 +1200,7 @@ void handleLiveStream() {
   client.println("Access-Control-Allow-Origin: *");
   client.println();
   liveSSEClient = client;
+  liveSSEClient.setTimeout(3);  // R27.1: 3s send timeout - stuck client 방지
   liveMode = true;
   dspReset();
   
@@ -1189,7 +1216,7 @@ void handleLiveStop() {
 }
 
 void handleLiveAxis() {
-  if (!server.hasArg("plain")) { server.send(400,"text/plain","No body"); return; }
+  if (!checkBodyLimit(8192)) return;
   JsonDocument req;
   if (deserializeJson(req, server.arg("plain"))) { server.send(400,"text/plain","JSON"); return; }
   const char* ax = req["axis"] | "a";
@@ -1233,7 +1260,17 @@ void setup() {
 
   Serial.println("=== FEMTO SHAPER v0.9 ===");
 
-  if (!LittleFS.begin(true)) { Serial.println("[ERROR] LittleFS FAIL"); return; }
+  // R31: LittleFS 초기화 실패 시 포맷 재시도 (손상/파티션 이슈 대응)
+  if (!LittleFS.begin(true)) {
+    Serial.println("[ERROR] LittleFS begin() failed, formatting and retrying...");
+    LittleFS.format();
+    if (!LittleFS.begin(true)) {
+      Serial.println("[FATAL] LittleFS unusable - serving minimal inline page");
+      // 완전 실패: WebServer는 /api/* 만 동작. 모든 파일 요청은 404.
+    } else {
+      Serial.println("[LittleFS] reformatted successfully");
+    }
+  }
   File root = LittleFS.open("/");
   File f = root.openNextFile();
   while (f) { Serial.printf("  %s (%dB)\n",f.name(),f.size()); f=root.openNextFile(); }
@@ -1409,8 +1446,11 @@ void setup() {
   });
   // R18.23: Factory reset endpoint - 모든 NVS namespace 클리어
   // POST /api/reset?all=1 → 전체 초기화. 그 외 → reboot만
+  // R26.1: 쿼리 인자 길이 검증 (최대 4바이트: "all=1" + 안전 여유)
   server.on("/api/reset", HTTP_POST, []() {
-    bool all = server.hasArg("all") && server.arg("all") == "1";
+    String allArg = server.arg("all");
+    if (allArg.length() > 4) { server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad_arg\"}"); return; }
+    bool all = (allArg == "1");
     if (all) {
       const char* ns[] = {"femto", "femto_bg", "femto_mpsd", "femto_result"};
       for (int i = 0; i < 4; i++) {
@@ -1738,13 +1778,24 @@ void loop() {
   updateLed();
 
   // ???? GPIO10 ?귐딅?甕곌쑵??????
+  // R29.1/R29.2: Reset button - edge-triggered state machine + noise filter
+  // 3x consecutive LOW confirms press; fires ESP.restart() ONLY on release (HIGH transition)
+  static uint8_t _resetLowCount = 0;
+  static bool _resetPressed = false;
   if (digitalRead(cfg.pinReset) == LOW) {
-    delay(50);  // ?遺얠뺍??곷뮞
-    if (digitalRead(cfg.pinReset) == LOW) {
-      Serial.println("[RESET] Button pressed");
+    if (_resetLowCount < 3) _resetLowCount++;
+    if (_resetLowCount >= 3 && !_resetPressed) {
+      _resetPressed = true;
+      Serial.println("[RESET] Button pressed (release to restart)");
+    }
+  } else {
+    if (_resetPressed) {
+      Serial.println("[RESET] Button released - restarting");
       delay(100);
       ESP.restart();
     }
+    _resetLowCount = 0;
+    _resetPressed = false;
   }
 
   // ???? ?關?녕뵳?(5???얜똾??? ????

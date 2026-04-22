@@ -533,19 +533,33 @@ function covarianceEigen(samples, mean) {
   return v;
 }
 
-// ── Gram-Schmidt 직교화 ──────────────────────────────
+// ── Gram-Schmidt 직교화 (R35: 특이점 가드 포함) ──────────────
 function gramSchmidt(gVec, xVec, yVec) {
-  var zHat = vecNorm(vecScale(gVec, -1)); // Z = -중력
-  // X: xVec에서 Z 성분 제거
+  // 중력 벡터 유효성 (수평 설치 방지)
+  var gMag = vecLen(gVec);
+  if (!isFinite(gMag) || gMag < 1e-3) {
+    return { error: 'gravity_zero', wx:[1,0,0], wy:[0,1,0], wz:[0,0,1], ortho:1, angleXY:0, xMag:0, yMag:0 };
+  }
+  var zHat = vecNorm(vecScale(gVec, -1));
   var xPerp = vecSub(xVec, vecScale(zHat, vecDot(xVec, zHat)));
   var xMag = vecLen(xPerp);
+  if (xMag < 1e-6) {
+    return { error: 'x_parallel_to_gravity', wx:[1,0,0], wy:[0,1,0], wz:zHat, ortho:1, angleXY:0, xMag:0, yMag:0 };
+  }
   var xHat = vecNorm(xPerp);
-  // Y: yVec에서 Z, X 성분 제거
   var yPerp = vecSub(yVec, vecScale(zHat, vecDot(yVec, zHat)));
   yPerp = vecSub(yPerp, vecScale(xHat, vecDot(yPerp, xHat)));
   var yMag = vecLen(yPerp);
+  if (yMag < 1e-6) {
+    return { error: 'y_collinear_with_x', wx:xHat, wy:[0,1,0], wz:zHat, ortho:1, angleXY:0, xMag:xMag, yMag:0 };
+  }
   var yHat = vecNorm(yPerp);
-  // 직교도 검증
+  // NaN 최종 검증
+  for (var k=0; k<3; k++) {
+    if (!isFinite(xHat[k]) || !isFinite(yHat[k]) || !isFinite(zHat[k])) {
+      return { error: 'nan_in_result', wx:[1,0,0], wy:[0,1,0], wz:[0,0,1], ortho:1, angleXY:0, xMag:0, yMag:0 };
+    }
+  }
   var ortho = Math.abs(vecDot(xHat, yHat));
   var angleXY = Math.acos(Math.max(-1, Math.min(1, vecDot(xHat, yHat)))) * 180 / Math.PI;
   return { wx: xHat, wy: yHat, wz: zHat, ortho: ortho, angleXY: angleXY, xMag: xMag, yMag: yMag };

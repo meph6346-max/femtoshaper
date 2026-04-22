@@ -34,8 +34,28 @@ function toggleLive() {
       }
     }).catch(function(){});
     ledBlink();
+    // R38: EventSource 지원 확인 (Safari <15)
+    if (typeof EventSource === 'undefined') {
+      appLog && appLog('logShaper', `<span class="log-err">!</span> EventSource not supported in this browser`);
+      liveRunning = false;
+      return;
+    }
     // SSE 연결
     liveEventSource = new EventSource('/api/live/stream');
+    // R38: 연결 감시 - 10초 동안 데이터가 없으면 stale로 판정해 재연결
+    let _liveLastMsgAt = Date.now();
+    if (window._liveWatchdog) clearInterval(window._liveWatchdog);
+    window._liveWatchdog = setInterval(() => {
+      if (!liveRunning) { clearInterval(window._liveWatchdog); return; }
+      if (Date.now() - _liveLastMsgAt > 10000) {
+        console.warn('[live] stale connection detected, resetting');
+        try { if (liveEventSource) liveEventSource.close(); } catch(e) {}
+        liveEventSource = null;
+        _liveLastMsgAt = Date.now();
+        try { liveEventSource = new EventSource('/api/live/stream'); } catch(e) {}
+      }
+    }, 5000);
+    liveEventSource.addEventListener('message', () => { _liveLastMsgAt = Date.now(); });
     liveEventSource.onmessage = (evt) => {
       try {
         const d = JSON.parse(evt.data);

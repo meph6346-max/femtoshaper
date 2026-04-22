@@ -508,8 +508,32 @@ function downloadApply() {
 }
 
 function copyApply() {
-  navigator.clipboard.writeText(document.getElementById('apPreview')?.textContent || '').catch(e => console.warn('API:', e.message));
-  appLog('logShaper', `<span class="log-ok">\u2713</span> ${t('log_applied')}`);
+  // R40.1: Clipboard API는 HTTPS/localhost 필요 → HTTP 환경 fallback (textarea 방식)
+  const text = document.getElementById('apPreview')?.textContent || '';
+  const doFallback = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok) appLog('logShaper', `<span class="log-ok">\u2713</span> ${t('log_applied')} (fallback)`);
+      else appLog('logShaper', `<span class="log-err">\u2717</span> Copy blocked - select text manually`);
+    } catch (err) {
+      appLog('logShaper', `<span class="log-err">\u2717</span> Copy unavailable: ${err.message}`);
+    }
+  };
+  if (!navigator.clipboard || !window.isSecureContext) {
+    doFallback();
+    return;
+  }
+  navigator.clipboard.writeText(text)
+    .then(() => appLog('logShaper', `<span class="log-ok">\u2713</span> ${t('log_applied')}`))
+    .catch(() => doFallback());
 }
 
 let _lastResultForSave = null;

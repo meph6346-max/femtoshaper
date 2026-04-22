@@ -535,8 +535,8 @@ static float _dualPsdSqX[DSP_NBINS];     // 가중 PSD 제곱합 (분산)
 static float _dualPsdSqY[DSP_NBINS];
 static float _dualWeightSum = 0.0f;       // 가중치 합 (X/Y 공유)
 static int   _dualFill = 0;
-static int   _dualSegActive = 0;          // 유효 세그먼트 (가중>0)
-static int   _dualSegTotal = 0;
+static int      _dualSegActive = 0;          // 유효 세그먼트 (가중>0)
+static uint32_t _dualSegTotal = 0;  // R21.2: uint32로 변경 + INT_MAX 부근에서 clamp
 static volatile bool dspDualNewSeg = false;
 #define DUAL_MAX_TOTAL_SEGS 45000         // 최대 ~60분 (float32 정밀도 보호)
 static bool  _dualMaxReached = false;
@@ -623,7 +623,8 @@ void dspFeedDual(float valX, float valY) {
   _dualFill++;
 
   if (_dualFill >= DSP_N) {
-    _dualSegTotal++;
+    // R21.2: INT_MAX 근처에서 clamp - 반복 재정규화는 45000 주기에서 처리됨
+    if (_dualSegTotal < 0x7FFFFFFFu) _dualSegTotal++;
 
     // ── 최대 세그먼트 보호: float32 정밀도 유지 ────
     // 45,000세그먼트(~60분) 도달 시 누적값을 절반으로 재정규화
@@ -805,7 +806,7 @@ float dspJerkBroadness(float* jerkPsd) {
 // ── 상태 조회 ────────────────────────────────────────
 int dspDualSegCountX()  { return _dualSegActive; }
 int dspDualSegCountY()  { return _dualSegActive; }
-int dspDualSegTotal()   { return _dualSegTotal; }
+int dspDualSegTotal()   { return (int)(_dualSegTotal < 0x7FFFFFFFu ? _dualSegTotal : 0x7FFFFFFFu); }
 float dspDualGateRatio(){ return _dualSegTotal>0 ? (float)_dualSegActive/_dualSegTotal : 0; }
 
 // X/Y 교차 상관 계수 (0=완벽 분리, 1=동일)

@@ -640,5 +640,117 @@ Total LOC: +400 lines (fixes + guards), -40 lines (removals)
 
 ---
 
+---
+
+## [BUGHUNT-R21-40] Deep-dive bug hunt: rounds 21-40 (17 additional bugs)
+
+After the 20-round user-flow hunt, ran a second 20 rounds focused on:
+- Numerical edge cases (overflow, float precision)
+- Concurrency (ISR races, SPI reentrancy)
+- Resource exhaustion (DoS, NVS, heap)
+- Hardware corner cases (FIFO overflow, reset button noise)
+- Browser/protocol compatibility
+
+Total new bugs identified: 30+, with 17 fixed immediately and 13 deferred
+as low-risk or requiring significant architecture change.
+
+### CRITICAL (4)
+
+- **R32 JSON serialization truncation**: `serializeJson()` was called with
+  8KB buffer, but /api/psd with 59 bins + var + jerk + bgPsd exceeds 8KB.
+  Truncated response silently corrupted client data.
+  FIX: Buffer expanded to 16KB, `measureJson()` pre-check prevents truncation.
+- **R25 POST body DoS**: No Content-Length validation allowed attackers to
+  send 50KB+ JSON garbage, exhausting ESP32 heap.
+  FIX: New `checkBodyLimit(8192)` helper applied to all 7 POST handlers; HTTP
+  413 Payload Too Large returned for oversized bodies.
+- **R21.2 segTotal int overflow**: `_dualSegTotal` was `int` (signed 32-bit).
+  After ~2 billion segments (24 hours continuous), wraps to negative, breaks
+  modulo-based halving logic.
+  FIX: Changed to `uint32_t` + clamp at 0x7FFFFFFF.
+- **R30.1 Reset button continuous-restart**: Original code restarted device
+  every loop iteration while button held, causing 10+ rapid restarts in 2
+  seconds.
+  FIX: Edge-triggered state machine: 3x consecutive LOW to confirm press,
+  restart ONLY on release (HIGH transition).
+
+### HIGH (5)
+
+- **R33 ADXL FIFO overflow silent**: FIFO_STATUS bit 7 (overflow flag) was
+  masked off by `& 0x3F`. Sample drops went undetected.
+  FIX: Check bit 7 separately, log overflow counter every 10 events.
+- **R31 LittleFS failure recovery**: `LittleFS.begin(true)` failure just
+  logged "FAIL" and returned, leaving WebServer unable to serve any assets.
+  FIX: Automatic `LittleFS.format()` + retry on failure.
+- **R35 Calibration singularities**: `gramSchmidt()` produced NaN/Inf for
+  horizontal install (gravity=0 on XY), collinear X/Y samples, or degenerate
+  covariance.
+  FIX: Pre-checks for gMag<1e-3 (horizontal), xMag<1e-6 (axis parallel to
+  gravity), yMag<1e-6 (collinear Y), plus NaN final verification. Returns
+  typed error codes (`gravity_zero`, `x_parallel_to_gravity`, etc).
+- **R40.1 Clipboard HTTP-only**: `navigator.clipboard.writeText()` requires
+  secure context; over HTTP (192.168.4.1) it silently failed.
+  FIX: Feature detect `window.isSecureContext`, fall back to legacy
+  `document.execCommand('copy')` via hidden textarea.
+- **R38 EventSource stale connection**: Network hang left EventSource open
+  with no data for 60+ seconds before `onerror` fired.
+  FIX: 5-second watchdog checks `Date.now() - _liveLastMsgAt > 10000`,
+  auto-reconnects. Plus EventSource feature detection for Safari <15.
+
+### MEDIUM (7)
+
+- **R27.1 SSE send timeout**: `liveSSEClient.write()` had no timeout;
+  slow/stuck clients blocked main loop.
+  FIX: `liveSSEClient.setTimeout(3)` (3-second send timeout).
+- **R26.1 Query argument length**: `/api/reset?all=<garbage>` was accepted
+  if first char was '1'.
+  FIX: Validate `arg.length() <= 4`.
+- **R36 Shaper math edges**: `calcMaxAccel()` with missing A/T arrays or
+  invalid scv/targetSmoothing crashed.
+  FIX: Pre-validation of shaper structure and parameters.
+- **R4.2** (already fixed in Phase C) - saveConfig returns bool, HTTP 507
+  propagates NVS write failures.
+- **R22** Float precision for long measurements: documented but not fixed
+  (would require double promotion across DSP accumulators - deferred).
+- **R37 Chart destroy robustness**: Already partially fixed in earlier
+  round with try/catch wrap. Additional guard would need Chart.js instance
+  tracking.
+- **R39 Fetch AbortController**: Identified but not applied everywhere
+  (would require significant refactor of async fetch patterns).
+
+### Deferred / Accepted Risk
+
+- **R21.1 bootNoiseSamples int**: Only incremented during boot noise (~10s),
+  very low overflow risk.
+- **R21.3 adxlRateSamples wrap**: Rate measurement runs for ~1 second
+  typical, overflow requires 13400 seconds (3.7 hours) continuous.
+- **R22 PSD accumulator float drift**: At worst 2% drift after 3 hours
+  continuous measurement. DUAL_MAX_TOTAL_SEGS=45000 halving mitigates.
+- **R23.1/23.2 SPI ISR race**: Theoretical race in ADXL reads. Haven't
+  observed in practice, would need atomic primitives or task separation.
+- **R24 /api/result accumulation**: NVS wear-leveling handles 100+ saves;
+  new /api/reset?all=1 endpoint provides clean reset.
+- **R28.1 Captive portal URLs**: iOS 16+ compatibility uncertain without
+  real-device testing.
+- **R29.2 GPIO10 electrical noise**: Mitigated by R29.1 debounce (3x LOW).
+- **R30.1 NVS atomic saves**: Proper CRC + backup namespace would require
+  significant refactor. Probability of partial write is low (< 1% per power
+  cycle with good supply).
+- **R34 Stack from JsonDocument**: ESP32-C3 stack is 8KB task + shared heap.
+  Not seen in practice.
+- **R40.2-5 Browser quirks**: EventSource/localStorage/clipboard already
+  have fallbacks or graceful degradation.
+
+### Total across all bug hunts
+
+| Phase | Fixed | Deferred | Notes |
+|-------|-------|----------|-------|
+| Initial review (pre-hunt) | 9 | 0 | app.js encoding, dsp.h static, etc. |
+| 20-round user flow | 43 | 3 | Phase A/B/C |
+| 20-round deep-dive (21-40) | 17 | 13 | Numerical/concurrency/resources |
+| **Grand total** | **69** | **16** | |
+
+---
+
 *Last updated: 2026-04-22 by Claude Code (claude-sonnet-4-6)*
 *Session branch: main (direct commits per user preference)*

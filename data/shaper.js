@@ -439,12 +439,15 @@ function calcSmoothing(shaper, accel, scv) {
 // @returns {number} 최대 가속도 (mm/s²)
 function calcMaxAccel(shaper, scv) {
   scv = scv || _scv();
-  const targetSmoothing = _targetSm(); // Settings 탭 값 반영
+  const targetSmoothing = _targetSm();
+  // R36: shaper 유효성 가드 (비정상 입력 방지)
+  if (!shaper || !Array.isArray(shaper.A) || !Array.isArray(shaper.T) || shaper.A.length === 0) {
+    return 0;
+  }
+  if (!isFinite(scv) || scv <= 0) scv = DEFAULT_SCV;
+  if (!isFinite(targetSmoothing) || targetSmoothing <= 0) return 0;
 
   // Klipper _bisect() 로직 포팅
-  // smoothing(accel) <= TARGET_SMOOTHING 인 최대 accel 찾기
-
-  // 먼저 상한 찾기: smoothing이 TARGET_SMOOTHING 초과하는 accel
   let left = 1, right = 1;
 
   // accel이 아주 작을 때 smoothing이 이미 초과하면 0 반환
