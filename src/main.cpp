@@ -762,6 +762,31 @@ void handlePostConfig() {
   JsonDocument doc;
   if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
 
+  // Pre-flight pin-conflict check. We have to do this BEFORE mutating any
+  // state (previously this check happened after sampleRate was already
+  // applied + NVS caches were already invalidated + ADXL was already
+  // reprogrammed, so a user with a typo on pins silently lost their
+  // measurement snapshot on every 400-response). Stage new pin values
+  // from the body and reject upfront on duplicates without touching cfg.
+  {
+    int np[7] = {
+      doc["pinSCK"].is<int>()   ? doc["pinSCK"].as<int>()   : cfg.pinSCK,
+      doc["pinMISO"].is<int>()  ? doc["pinMISO"].as<int>()  : cfg.pinMISO,
+      doc["pinMOSI"].is<int>()  ? doc["pinMOSI"].as<int>()  : cfg.pinMOSI,
+      doc["pinCS"].is<int>()    ? doc["pinCS"].as<int>()    : cfg.pinCS,
+      doc["pinINT1"].is<int>()  ? doc["pinINT1"].as<int>()  : cfg.pinINT1,
+      doc["pinLED"].is<int>()   ? doc["pinLED"].as<int>()   : cfg.pinLED,
+      doc["pinReset"].is<int>() ? doc["pinReset"].as<int>() : cfg.pinReset,
+    };
+    for (int i = 0; i < 7; i++)
+      for (int j = i+1; j < 7; j++)
+        if (np[i] == np[j] && np[i] >= 0) {
+          server.send(400, "application/json",
+            "{\"ok\":false,\"error\":\"duplicate_gpio_pins\"}");
+          return;
+        }
+  }
+
   // R20.32: block sampleRate changes during an active measurement
   // (FFT sizing assumes a fixed rate for the duration of the run)
   if (measState == MEAS_PRINT) {
@@ -1524,6 +1549,16 @@ void handleLiveStop() {
 
 // v0.9: WiFi scan endpoint
 void handleWifiScan() {
+  // WiFi.scanNetworks blocks the main loop for up to 3.3 s (11 channels x
+  // 300 ms). During that window the ADXL FIFO (32 samples = 10 ms at
+  // 3200Hz) overflows repeatedly and the DSP gets a 3.3 s gap in its
+  // segment stream - a full print measurement run can be spoiled by a
+  // settings-page WiFi scan. Reject during an active print.
+  if (measState == MEAS_PRINT) {
+    server.send(409, "application/json",
+      "{\"ok\":false,\"error\":\"scan_blocked_during_measurement\"}");
+    return;
+  }
   int n = WiFi.scanNetworks(false, false, false, 300);
   JsonDocument doc;
   JsonArray nets = doc["networks"].to<JsonArray>();
@@ -2042,7 +2077,12 @@ void loop() {
       }
     }
 
-    // WiFi status check + recovery
+    // WiFi status check + recovery.
+    // During MEAS_PRINT we avoid the fallback / reinit paths (each has
+    // ~300-900 ms of delay() that would leave a measurement-ruining gap
+    // in the DSP segment stream). Non-blocking WiFi.reconnect() is still
+    // fine, so STA-reconnect is allowed; full STA->AP fallback and AP
+    // reinit are deferred until the measurement ends.
     if (WiFi.status() == WL_CONNECTED) {
       // STA connected - reset AP failure counter
       apFailCount = 0;
@@ -2052,6 +2092,11 @@ void loop() {
       Serial.printf("[WiFi] STA reconnect %d/3\n", apFailCount);
       if (apFailCount <= 2) {
         WiFi.reconnect();
+      } else if (measState == MEAS_PRINT) {
+        // Defer blocking fallback - don't let WiFi recovery tear up an
+        // active measurement. Counter is left at 3+, so we'll retry on
+        // the next 30s watchdog tick once measurement leaves PRINT.
+        Serial.println("[WiFi] STA fallback deferred (MEAS_PRINT active)");
       } else {
         Serial.println("[WiFi] STA failed - fallback to AP");
         WiFi.disconnect(true);
@@ -2065,6 +2110,11 @@ void loop() {
         apFailCount = 0;
       }
     } else if (WiFi.softAPIP() == IPAddress(0,0,0,0)) {
+      // AP not up. Recovery uses delay() up to ~900 ms; skip during an
+      // active measurement (see comment above for rationale).
+      if (measState == MEAS_PRINT) {
+        Serial.println("[WiFi] AP recovery deferred (MEAS_PRINT active)");
+      } else {
       apFailCount++;
       Serial.printf("[WiFi] AP recovery attempt %d/3 (heap: %u)\n", apFailCount, freeHeap);
       if (apFailCount <= 1) {
@@ -2085,6 +2135,7 @@ void loop() {
         Serial.println("[WiFi] Stage 3 failed - rebooting");
         ESP.restart();
       }
+      }  // end of measState != MEAS_PRINT AP-recovery branch
     } else {
       apFailCount = 0;
     }

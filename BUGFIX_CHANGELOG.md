@@ -8,6 +8,42 @@
 
 ---
 
+### 2026-04-22 round 15 (Claude Opus 4.7): long-blocking operations + partial-apply POSTs
+
+Chain pattern continues: R10-R15 each round follows the chain from the
+previous round's fix to a new concern. R14 was stack safety; R15 audits
+what else in loop() blocks for a long time, and what POST handlers apply
+side-effects before validating the full request.
+
+**Fixed (3):**
+
+- **MEDIUM**: `handleWifiScan` blocks the loop for up to 3.3 s
+  (11 channels × 300 ms). If called during MEAS_PRINT, the ADXL FIFO
+  overflows repeatedly and the DSP gets a 3.3 s gap. Now rejects with
+  409 `{"error":"scan_blocked_during_measurement"}` when in PRINT.
+- **MEDIUM**: WiFi recovery paths in the 30-s AP watchdog use
+  delay() totals of 300-900 ms. Same shape of measurement-ruining gap
+  during MEAS_PRINT. Now skipped during PRINT with a "deferred" log;
+  non-blocking `WiFi.reconnect()` still fires.
+- **MEDIUM**: `handlePostConfig` applied sampleRate changes (with
+  side-effects: measPsd cleared, dsp arrays reset, ADXL hardware
+  reprogrammed) BEFORE the pin-conflict check. A user typo on pins
+  caused a 400 response AFTER their measurement snapshot was already
+  wiped. Moved pin-conflict check to the top of the handler using a
+  staging array that reads from the request body without touching
+  cfg. The existing later check remains as a redundant safety net.
+
+**Verification:**
+```
+g++ -c -O2 -Wall -Wextra -I/tmp/stubs src/main.cpp    # 0 warnings
+braces/parens balanced
+node --check data/*.js test/*.js                      # all pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND15.md`](./BUGFIX_COMMENT_ABSORB_ROUND15.md).
+
+**Running total:** 179 (before) + 3 = **182 bugs fixed**.
+
 ### 2026-04-22 round 14 (Claude Opus 4.7): chasing R13's chain — stack safety + uninit memory
 
 "Chase each fix's chain back around" (user). Round 13 bumped buffers;
