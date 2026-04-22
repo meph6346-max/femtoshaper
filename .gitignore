@@ -1,0 +1,19 @@
+# Python cache (from running scripts/*.py)
+__pycache__/
+*.pyc
+*.pyo
+
+# PlatformIO build output
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Editor artefacts
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
