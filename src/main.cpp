@@ -332,11 +332,6 @@ static float toMs2(int16_t raw) {
   return raw * 0.0039f * 9.80665f;
 }
 
-static AdxlSample adxlLatest() {
-  if (adxlCount == 0) return {0, 0, 0};
-  return adxlBuf[(adxlHead + adxlCount - 1) % ADXL_BUF_SIZE];
-}
-
 // ============================================================
 // ADXL / DSP HTTP API
 // ============================================================
@@ -356,8 +351,12 @@ void handleDebugGet() {
 }
 
 void handleDebugPost() {
+  // R25: every POST handler must enforce the body size limit for DoS protection.
+  if (!checkBodyLimit(8192)) return;
   JsonDocument doc;
-  deserializeJson(doc, server.arg("plain"));
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "text/plain", "JSON error"); return;
+  }
   if (doc["minValidSegs"].is<int>()) {
     dspMinValidSegs = constrain(doc["minValidSegs"].as<int>(), 10, 500);
   }
@@ -413,6 +412,12 @@ void handleAdxlRate() {
     return;
   }
   JsonDocument doc;
+  // R76: validate measured rate against cfg.sampleRate (+/-8%), not a fixed 3200Hz
+  // constant. Without this, any non-default sampleRate would falsely report "NOT OK"
+  // even when the sensor is delivering the configured rate correctly.
+  const float targetHz = (float)cfg.sampleRate;
+  const float lo = targetHz * 0.92f;
+  const float hi = targetHz * 1.08f;
   if (adxlRateMeasuring) {
     uint32_t elapsed = millis() - adxlRateStart;
     if (elapsed >= 1000) {
@@ -420,13 +425,15 @@ void handleAdxlRate() {
       adxlRateMeasuring = false;
       doc["done"] = true; doc["hz"] = adxlRateHz;
       doc["samples"] = adxlRateSamples; doc["elapsed"] = elapsed;
-      doc["ok"] = (adxlRateHz > 2800.0f && adxlRateHz < 3400.0f);
+      doc["target"] = targetHz;
+      doc["ok"] = (adxlRateHz > lo && adxlRateHz < hi);
     } else {
       doc["done"] = false; doc["elapsed"] = elapsed; doc["samples"] = adxlRateSamples;
     }
   } else {
     doc["done"] = true; doc["hz"] = adxlRateHz;
-    doc["ok"] = (adxlRateHz > 2800.0f && adxlRateHz < 3400.0f);
+    doc["target"] = targetHz;
+    doc["ok"] = (adxlRateHz > lo && adxlRateHz < hi);
   }
   sendJson(doc);
 }
@@ -731,8 +738,12 @@ void handlePostConfig() {
   }
   if (doc["kin"].is<const char*>()) strncpy(cfg.kin, doc["kin"] | "corexy", sizeof(cfg.kin)-1);
   if (doc["axesMap"].is<const char*>()) strncpy(cfg.axesMap, doc["axesMap"] | "xyz", sizeof(cfg.axesMap)-1);
-  // Calibration weights accepted from JS (expected as 3-float JSON arrays)
-  if (doc["calWx"].is<JsonArray>() && doc["calWx"].size() == 3) {
+  // Calibration weights accepted from JS (expected as 3-float JSON arrays).
+  // Both calWx and calWy must be present and well-formed; partial updates are
+  // rejected to avoid mixing a fresh X vector with a stale Y vector (which
+  // could yield a non-orthogonal projection).
+  if (doc["calWx"].is<JsonArray>() && doc["calWx"].size() == 3 &&
+      doc["calWy"].is<JsonArray>() && doc["calWy"].size() == 3) {
     cfg.calWx[0] = doc["calWx"][0]; cfg.calWx[1] = doc["calWx"][1]; cfg.calWx[2] = doc["calWx"][2];
     cfg.calWy[0] = doc["calWy"][0]; cfg.calWy[1] = doc["calWy"][1]; cfg.calWy[2] = doc["calWy"][2];
     cfg.useCalWeights = true;
@@ -923,32 +934,6 @@ void handleLoadResult() {
     doc["shaperTypeX"]=shTypeX; doc["shaperTypeY"]=shTypeY;
     doc["confidence"]=conf;
     doc["hasResult"]=(freqX>0&&freqY>0);
-  }
-  sendJson(doc);
-}
-
-void handleSaveBelt() {
-  if (!checkBodyLimit(8192)) return;
-  JsonDocument doc;
-  if (deserializeJson(doc,server.arg("plain"))) { server.send(400,"text/plain","JSON error"); return; }
-  prefs.begin("femto_belt",false);
-  if (doc["freqA"].is<float>()) prefs.putFloat("freqA",doc["freqA"]);
-  if (doc["freqB"].is<float>()) prefs.putFloat("freqB",doc["freqB"]);
-  if (doc["delta"].is<float>()) prefs.putFloat("delta",doc["delta"]);
-  prefs.end();
-  server.send(200,"application/json","{\"ok\":true}");
-}
-
-void handleLoadBelt() {
-  JsonDocument doc;
-  if (!prefs.begin("femto_belt",true)) {
-    prefs.end();
-    doc["hasResult"]=false;doc["freqA"]=0;doc["freqB"]=0;doc["delta"]=0;
-  } else {
-    float freqA=prefs.getFloat("freqA",0), freqB=prefs.getFloat("freqB",0), delta=prefs.getFloat("delta",0);
-    prefs.end();
-    doc["freqA"]=freqA; doc["freqB"]=freqB; doc["delta"]=delta;
-    doc["hasResult"]=(freqA>0&&freqB>0);
   }
   sendJson(doc);
 }
@@ -1257,9 +1242,9 @@ void handleMeasure() {
       dspDualGateRatio()*100, dspDualCorrelation()*100);
   }
   else if (strcmp(cmd,"stop")==0) {
-    // Reset command: clear all measurement state (idle LED, DSP reset)
+    // Stop command: finalise the current measurement as DONE (not a full reset).
+    // If we are mid-print, snapshot the PSD peaks so the client can still read them.
     if (measState == MEAS_PRINT) {
-      // Only valid after print_stop (idempotent otherwise)
       dspUpdateDual();
       float pkPwrX=0, pkPwrY=0;
       peakFreqX = dspDualFindPeak(dspDualPsdX, dspDualSegCountX(), &pkPwrX);
@@ -1345,7 +1330,7 @@ void handleLiveStream() {
     liveSSEClient.stop();
   }
   liveSSEClient = client;
-  liveSSEClient.setTimeout(3);  // R27.1: 3s send timeout - stuck client ?
+  liveSSEClient.setTimeout(3);  // R27.1: 3s send timeout so a stuck client cannot block the loop
   liveMode = true;
   dspReset();
   
@@ -1392,7 +1377,7 @@ void setup() {
   if (wakeup == ESP_SLEEP_WAKEUP_GPIO) {
     Serial.println("[WAKE] GPIO wakeup (reset button)");
   } else if (wakeup != ESP_SLEEP_WAKEUP_UNDEFINED) {
-    Serial.printf("[WAKE] ????? %d\n", wakeup);
+    Serial.printf("[WAKE] cause: %d\n", wakeup);
   }
 
   lastActivityMs = millis();
@@ -1465,7 +1450,7 @@ void setup() {
 
   // Try STA mode first (if configured)
   if (strcmp(cfg.wifiMode,"sta")==0 && strlen(cfg.staSSID) > 0) {
-    Serial.printf("[WiFi] STA mode ??connecting to '%s'...\n", cfg.staSSID);
+    Serial.printf("[WiFi] STA mode ->connecting to '%s'...\n", cfg.staSSID);
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(cfg.hostname);  // v1.0: mDNS hostname
     WiFi.setTxPower(txPower);
@@ -1556,7 +1541,6 @@ void setup() {
   server.on("/settings.js",   [JS=JS]()   { serveFile("/settings.js",   JS); });
   server.on("/app.js",        [JS=JS]()   { serveFile("/app.js",        JS); });
   server.on("/report.js",     [JS=JS]()   { serveFile("/report.js",     JS); });
-  // adxl_test.js endpoint: retained for backward compatibility with v0.8 tools
 
   server.on("/api/config",      HTTP_GET,  handleGetConfig);
   server.on("/api/noise",       HTTP_GET,  handleGetNoise);
@@ -1566,8 +1550,6 @@ void setup() {
   server.on("/api/led",         HTTP_POST, handleLed);
   server.on("/api/result",      HTTP_GET,  handleLoadResult);
   server.on("/api/result",      HTTP_POST, handleSaveResult);
-  server.on("/api/belt",        HTTP_GET,  handleLoadBelt);
-  server.on("/api/belt",        HTTP_POST, handleSaveBelt);
   server.on("/api/diag",        HTTP_GET,  handleLoadDiag);
   server.on("/api/diag",        HTTP_POST, handleSaveDiag);
   server.on("/api/adxl/status", HTTP_GET,  handleAdxlStatus);
@@ -1703,18 +1685,18 @@ void loop() {
           } else {
             // Startup noise was inconsistent, so fall back to the last saved PSD.
             loadBgPsdFromNVS();
-            Serial.printf("[BOOT] bgPsd inconsistent (ratio=%.2f) ??NVS fallback\n", ratio);
+            Serial.printf("[BOOT] bgPsd inconsistent (ratio=%.2f) ->NVS fallback\n", ratio);
           }
         } else {
           // No valid startup capture; restore the last saved background PSD.
           loadBgPsdFromNVS();
-          Serial.println("[BOOT] Capture failed ??NVS fallback restored");
+          Serial.println("[BOOT] Capture failed ->NVS fallback restored");
         }
         // Recompute the sweep-detection baseline from the final background PSD.
         dspBgEnergy = 0;
         for (int k = dspBinMin(); k <= dspBinMax(); k++) dspBgEnergy += dspBgPsd[k];
         if (dspBgEnergy < 50.0f) dspBgEnergy = 50.0f;
-        Serial.printf("[BOOT] bgEnergy=%.0f ??sweep threshold base\n", dspBgEnergy);
+        Serial.printf("[BOOT] bgEnergy=%.0f ->sweep threshold base\n", dspBgEnergy);
         dspReset();  // Resume normal sweep detection after boot-noise capture.
       }
     }
@@ -1946,7 +1928,7 @@ void loop() {
   }
   // Sleep after 5 minutes of no activity
   if (millis() - lastActivityMs > DEEP_SLEEP_TIMEOUT_MS) {
-    Serial.println("[SLEEP] 5min idle ??deep sleep (press reset to wake)");
+    Serial.println("[SLEEP] 5min idle ->deep sleep (press reset to wake)");
     WiFi.mode(WIFI_OFF);
     delay(100);
     esp_deep_sleep_enable_gpio_wakeup(1ULL << cfg.pinReset, ESP_GPIO_WAKEUP_GPIO_LOW);

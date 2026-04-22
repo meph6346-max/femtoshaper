@@ -8,6 +8,61 @@
 
 ---
 
+### 2026-04-22 round 8 (Claude Opus 4.7): manual logic review after compiler went silent
+
+Rounds 1-7 drove `-Wall -Wextra` + syntax-only compile to zero. User
+asked for another pass anyway; round 8 is pure manual review for logic
+bugs. Found eight real issues and one cosmetic leftover.
+
+**Fixed (9 tickets):**
+
+- **`/api/belt` dead endpoints removed.** `handleSaveBelt` +
+  `handleLoadBelt` + both HTTP_GET/HTTP_POST routes were still
+  present even though the belt-tension feature was retired and no
+  client code calls `/api/belt`. Also drops the `femto_belt` NVS
+  namespace (existing data stays harmlessly until factory reset).
+- **Orphan `adxl_test.js` comment removed** (line 1559). Round 7 had
+  guessed wrong that this referred to a live endpoint.
+- **HIGH: `handleAdxlRate` validated against hardcoded 3200 Hz.** Any
+  `cfg.sampleRate` other than 3200 would permanently report "sensor
+  rate NOT OK" in the UI. Fixed to use `cfg.sampleRate ±8 %` and
+  included `target` in the response so the UI can show both values.
+- **MEDIUM: `handlePostConfig` accepted `calWx` without `calWy`.**
+  If a client POSTed only `calWx` (or malformed `calWy`), we set
+  `useCalWeights=true` with a zero-vector Y, silently destroying
+  Y-axis projection. Fix requires both arrays to be well-formed.
+- **MEDIUM: `handleDebugPost` missing `checkBodyLimit()`.** Every
+  other POST handler enforced R25 DoS limit; this one bypassed it.
+  Added the call + proper JSON error response on parse failure.
+- **LOW: `handleMeasure "stop"` comment said "Reset command".** The
+  branch actually transitions to `DONE` and snapshots peaks; the
+  "reset" semantics belong to the `else` branch. Corrected.
+- **`adxlLatest()` dead utility function removed.** Was the last
+  `-O2 -Wunused-function` warning.
+- **Five `Serial` log messages had literal `??` instead of `->`.**
+  Korean arrow characters (`→`) collapsed to `??` in an earlier
+  encoding round-trip and lived inside string literals (so prior
+  `//`-comment sweeps missed them). Replaced with `->` throughout;
+  one `[WAKE]` line with `?????` was rewritten as `"cause: %d"`.
+- **Cosmetic: trailing `?` on `R27.1` comment.** Round-7 comment
+  leftover; now a complete English sentence.
+
+**Verification:**
+```
+braces + parens balanced on main.cpp and dsp.h
+g++ -std=c++17 -c -O2 -Wall -Wextra -I/tmp/stubs src/main.cpp
+# 0 warnings, 0 errors
+node --check + sim_*.js                      # all pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND8.md`](./BUGFIX_COMMENT_ABSORB_ROUND8.md)
+has per-bug before/after, the end-state (zero warnings at `-O2`),
+and the short list of genuinely remaining items
+(`-Wconversion` noise in DSP math, intentional UI emoji in
+`data/*.js`, Korean research notes in `test/*.js`).
+
+**Running total:** 143 (before) + 8 = **151 bugs fixed**.
+
 ### 2026-04-22 round 7 (Claude Opus 4.7): dead-code removal + full comment normalisation
 
 User decided the remaining three items: remove `/api/live/axis` as dead
