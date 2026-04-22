@@ -399,5 +399,142 @@ node test/sim_accuracy.js                    # run all scenarios
 
 ---
 
+---
+
+## [FEAT-SIM-02] Realistic simulation reveals CI miscalibration and multi-mode gap
+
+- **Files**: `test/sim_realistic.js` (+330), `test/sim_realistic_helpers.js` (+250),
+  `test/sim_diagnostics.js` (+170), `test/sim_ci_validate.js` (+90), `test/ci_inspect.js` (+30)
+- **Type**: Test infrastructure - realistic 3D printer physics simulation
+
+### What it models
+
+| Aspect | Implementation |
+|--------|----------------|
+| Mechanical system | Multi-mode coupled 2nd-order SDOFs (primary + secondary) |
+| Commanded motion | Realistic trapezoidal velocity profiles, random moves |
+| Move types | Perimeter (single-axis), travel (diagonal), mixed |
+| ADXL345 sensor | 4mg/LSB quantization, 5% cross-axis, 1-pole LP filter, bias |
+| Fan vibration | 70Hz + 120Hz fundamental + 2nd/3rd harmonics |
+| CoreXY projection | A/B motor combination + angle error rotation |
+| Noise sources | Gaussian sensor noise, quantization, drift |
+
+### Baseline simulation results (current pipeline, 10 trials/scenario)
+
+| Scenario | X err | Y err | Max err |
+|----------|-------|-------|---------|
+| Baseline (clean) | 0.39 Hz | 0.53 Hz | 1.1 Hz |
+| + Fan noise (70+120Hz) | 0.53 | 0.82 | 1.6 |
+| + Secondary mode (65/72Hz) | 0.84 | 0.17 | 2.5 |
+| + Calibration error (5 deg) | 0.60 | 0.57 | 1.4 |
+| + Low excitation (10 moves) | 0.67 | 1.32 | 1.8 |
+| + ADXL cross-axis (10%) | 0.63 | 0.46 | 1.3 |
+| + Perimeter-only | 0.51 | 0.52 | 1.4 |
+| **Realistic combined** | **0.74** | **0.31** | **1.7** |
+| **Average** | **0.60 Hz** | | |
+
+**Current pipeline already performs at ~0.60 Hz average error**, significantly
+better than the 1-2 Hz prediction from earlier analysis. No algorithmic changes
+needed for the common case.
+
+---
+
+## [FIX-CI-01] CI formula recalibrated (simulation-driven)
+
+- **Files**: `data/shaper.js::computePeakCI`
+- **Type**: Correctness fix
+
+### Problem discovered
+
+The Phase 1-B CI formula `sigma_f = binWidth / (sqrt(SNR) * sqrt(n_eff))`
+was derived from the Cramer-Rao Lower Bound but over-reduced sigma via the
+`sqrt(n_eff)` term (Welch already averages, so this double-counts).
+
+**Validation test (test/sim_diagnostics.js, 30 trials each):**
+
+| Scenario | Predicted sigma | Actual sigma | Coverage |
+|----------|-----------------|--------------|----------|
+| Baseline | 0.215 Hz | 0.445 Hz | **37%** (target 95%) |
+| Fan noise | 0.214 | 0.662 | **30%** |
+| Low excitation | 0.230 | 0.275 | **13%** |
+
+CI was too narrow, giving users false confidence in imprecise measurements.
+
+### v2 attempt (overcorrected)
+
+First recalibration tried `0.15·Δf + 1.5·Δf·relVar + 0.5·Δf/√SNR`. Empirical
+measurements of simulation:
+- `relVar = sqrt(var)/mean` typical 0.43-0.96 (NOT ~0.1 as expected)
+- `SNR = mean / std` typical 1.0-2.3 (NOT ~10-100 as expected)
+
+Result: predicted sigma 5 Hz (10x too wide, 100% coverage but useless).
+
+### v3 (final, validated)
+
+```javascript
+sigma_f = 0.15 * binWidth + 0.15 * binWidth * Math.max(0, relVar - 0.5);
+```
+
+Empirically chosen constants. Baseline floor `0.47 Hz`, plus variance-dependent
+widening when peak variance is high.
+
+**Validation results (50 trials each):**
+
+| Scenario | Predicted | Actual | Ratio | Coverage |
+|----------|-----------|--------|-------|----------|
+| Baseline | 0.567 | 0.474 | 1.20 | **96%** |
+| Fan noise 70Hz | 0.547 | 0.610 | 0.90 | **92%** |
+| Fan 70+120Hz | 0.568 | 0.612 | 0.93 | 86% |
+| Low excitation | 0.587 | 0.310 | 1.89 | 100% |
+| Noisy sensor | 0.556 | 0.565 | 0.98 | **92%** |
+
+Average coverage **93%** (target 95%). Users now get meaningful confidence
+intervals for peak frequency.
+
+---
+
+## [FEAT-DEFL-01] Multi-mode deflation peak detection
+
+- **Files**: `data/shaper.js::detectPeaksDeflation` (new, 40 lines),
+  `data/app.js` (+20 lines auto-detection)
+- **Type**: Accuracy improvement for close-peak scenarios
+
+### Problem discovered
+
+`test/sim_diagnostics.js` multi-mode test revealed secondary peak error of
+5-8 Hz when modes are within 8-10 Hz of each other. This is because the
+centroid-based peak detection smears nearby peaks together.
+
+### Solution
+
+Iterative deflation:
+1. Find strongest peak via existing `detectPeaks()`
+2. Fit Lorentzian, subtract from residual PSD
+3. Find next peak in residual
+4. Repeat up to 4 peaks
+
+### Validation results (10 trials per scenario)
+
+| Scenario | Current (pri/sec err) | Deflation | Secondary gain |
+|----------|------------------------|-----------|----------------|
+| Close modes (Δ=4Hz) | 0.42 / 3.79 Hz | 0.42 / 3.45 Hz | 1.1x |
+| **Moderate gap (Δ=10Hz)** | 0.64 / 8.38 Hz | 0.81 / **2.42 Hz** | **3.5x** |
+| Wide gap (Δ=25Hz) | 1.01 / 2.88 Hz | 0.91 / 3.13 Hz | 1.0x |
+| **Equal amplitude (Δ=8Hz)** | 0.02 / 5.11 Hz | 0.19 / **1.10 Hz** | **4.6x** |
+
+### Activation
+
+`app.js::fetchAndRenderPsdDual` auto-activates deflation when:
+- First two detected peaks are 3-20 Hz apart AND
+- Secondary peak power is > 30% of primary
+
+Emits log line `D X-axis deflation applied (N separated peaks)` when triggered.
+
+For wide-gap scenarios (Δ > 20Hz), existing detectPeaks is already sufficient,
+so deflation is skipped. For close-mode (Δ < 4Hz), neither method resolves
+well — future work.
+
+---
+
 *Last updated: 2026-04-22 by Claude Code (claude-sonnet-4-6)*
 *Session branch: main (direct commits per user preference)*

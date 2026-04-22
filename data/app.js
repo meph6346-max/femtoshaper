@@ -106,8 +106,34 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     }
 
     const kin = typeof getCfgKin === 'function' ? getCfgKin() : 'corexy';
-    const peaksX = typeof detectPeaks === 'function' ? detectPeaks(cleanX, { kin, axis: 'x' }) : [];
-    const peaksY = typeof detectPeaks === 'function' ? detectPeaks(cleanY, { kin, axis: 'y' }) : [];
+    let peaksX = typeof detectPeaks === 'function' ? detectPeaks(cleanX, { kin, axis: 'x' }) : [];
+    let peaksY = typeof detectPeaks === 'function' ? detectPeaks(cleanY, { kin, axis: 'y' }) : [];
+
+    // 시뮬레이션 검증: 근접 이중 모드(Δf 6~20Hz)에서 deflation이 3~4배 정확
+    // 자동 감지: 첫 두 피크가 근접하고 secondary power가 primary의 30% 이상이면 deflation 실행
+    if (typeof detectPeaksDeflation === 'function' && typeof detectPeaks === 'function') {
+      const closeMulti = (peaks) => {
+        if (peaks.length < 2) return false;
+        const p1 = peaks[0], p2 = peaks[1];
+        const df = Math.abs(p1.f - p2.f);
+        const powerRatio = (p2.v || p2.power || 0) / Math.max(p1.v || p1.power || 1, 1e-12);
+        return df < 20 && df > 3 && powerRatio > 0.3;
+      };
+      if (closeMulti(peaksX)) {
+        const refined = detectPeaksDeflation(cleanX, (psd) => detectPeaks(psd, { kin, axis: 'x' }), { maxPeaks: 4 });
+        if (refined && refined.length >= 2) {
+          peaksX = refined;
+          appLog('logShaper', `<span class="log-ok">D</span> X-axis deflation applied (${refined.length} separated peaks)`);
+        }
+      }
+      if (closeMulti(peaksY)) {
+        const refined = detectPeaksDeflation(cleanY, (psd) => detectPeaks(psd, { kin, axis: 'y' }), { maxPeaks: 4 });
+        if (refined && refined.length >= 2) {
+          peaksY = refined;
+          appLog('logShaper', `<span class="log-ok">D</span> Y-axis deflation applied (${refined.length} separated peaks)`);
+        }
+      }
+    }
 
     let filtPeakX = (peaksX.length > 0 && !peaksX[0].isHarmonic && !peaksX[0].isFan) ? peaksX[0].f : (d.peakFreqX || 0);
     let filtPeakY = (peaksY.length > 0 && !peaksY[0].isHarmonic && !peaksY[0].isFan) ? peaksY[0].f : (d.peakFreqY || 0);

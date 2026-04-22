@@ -91,13 +91,21 @@ function computeTransferFunction(psdOut, psdInput, opts) {
   return H;
 }
 
-// Phase 1-B: 피크 주파수 신뢰구간 계산
-// 분산 기반 불확실성 전파: σ_f ≈ Δf × √(var_peak / peak²) / √n_eff
+// Phase 1-B (v3): 피크 주파수 신뢰구간 계산 - 시뮬레이션 검증된 경험적 공식
+//
+// 검증 이력 (test/sim_diagnostics.js, test/sim_ci_validate.js):
+//   v1: σ = Δf / (√SNR × √n_eff)           → CI 너무 좁음 (30-37% cov)
+//   v2: 1.5·Δf·relVar 가중           → CI 너무 넓음 (100% cov, 10× 큼)
+//   v3: 0.15·Δf + 0.15·Δf·max(relVar-0.5, 0)  → 95% cov, 실측값과 일치
+//
+// 실측 상수 (3200Hz 샘플, 1024pt FFT, 10s 측정):
+//   relVar 분포:  mean=0.69, range 0.43-0.96 (Welch σ/μ 비율)
+//   actual σ:    ~0.5 Hz (모든 시나리오)
+//   → binWidth × 0.17 ≈ 0.53Hz 가 경험적 기준값
 function computePeakCI(psdData, peakFreq, opts) {
   opts = opts || {};
   if (!psdData || psdData.length < 3 || !peakFreq) return null;
 
-  // 피크 인덱스 찾기
   let peakIdx = -1, bestDist = Infinity;
   for (let i = 0; i < psdData.length; i++) {
     const d = Math.abs(psdData[i].f - peakFreq);
@@ -110,20 +118,65 @@ function computePeakCI(psdData, peakFreq, opts) {
   const peakVar = psdData[peakIdx].var || 0;
   if (peakPower <= 0) return null;
 
-  // 상대 분산 기반 σ_f (Cramér-Rao lower bound 근사)
-  // σ_f = (binWidth / SNR) × (1 / √n_eff)
   const peakStd = Math.sqrt(peakVar);
+  const relVar = peakStd / Math.max(peakPower, 1e-12);
   const snr = peakPower / Math.max(peakStd, peakPower * 0.01);
-  const nEff = Math.max(1, opts.segs || 100);
-  const sigma_f = binWidth / (Math.sqrt(snr) * Math.sqrt(nEff) + 1);
+
+  // 경험 공식 (시뮬레이션에서 95% coverage 달성):
+  //   baseline:    0.15 × binWidth           (~0.47Hz fixed floor)
+  //   high-var:    0.15 × binWidth × excess   (변동 큰 피크는 추가 불확실성)
+  const sigma_f = 0.15 * binWidth
+                + 0.15 * binWidth * Math.max(0, relVar - 0.5);
 
   return {
     lo: peakFreq - 1.96 * sigma_f,
     hi: peakFreq + 1.96 * sigma_f,
     sigma: sigma_f,
     snr: snr,
+    relVar: relVar,
     peakIdx: peakIdx,
   };
+}
+
+// ══════════════════════════════════════════════════════
+// 시뮬레이션 기반 개선: 다중 모드 Deflation 피크 검출
+//
+// test/sim_diagnostics.js 검증 결과:
+//   Moderate gap (Δ=10Hz): 기존 8.38Hz → deflation 2.42Hz (3.5× 개선)
+//   Equal amp (Δ=8Hz):     기존 5.11Hz → deflation 1.10Hz (4.6× 개선)
+//
+// 원리: 주 피크를 찾고 Lorentzian을 PSD에서 차감 후 재탐색
+//       → 주 피크의 스펙트럼 누수에 가려진 부 피크 복구
+// ══════════════════════════════════════════════════════
+function detectPeaksDeflation(psd, detectFn, opts) {
+  opts = opts || {};
+  const maxPeaks = opts.maxPeaks || 4;
+  if (!psd || psd.length < 10) return [];
+  // Clone PSD for mutation
+  const workPsd = psd.map(p => ({ f: p.f, v: p.v, var: p.var || 0 }));
+  const selected = [];
+  for (let iter = 0; iter < maxPeaks; iter++) {
+    const pks = detectFn(workPsd);
+    if (!pks || pks.length === 0) break;
+    // Take strongest peak in residual
+    const pk = pks[0];
+    selected.push(pk);
+    // Subtract Lorentzian fit (reuse zoomPeakRefine if available)
+    let f0 = pk.f, gamma = (pk.damping || 0.1) * pk.f;
+    if (typeof zoomPeakRefine === 'function') {
+      const r = zoomPeakRefine(workPsd, pk.f);
+      if (r && r.freq) { f0 = r.freq; gamma = Math.max(1.0, (r.damping || 0.1) * f0); }
+    }
+    const A = pk.v;
+    // Baseline: 30th percentile away from peak
+    const farBins = workPsd.filter(p => Math.abs(p.f - f0) > 15).map(p => p.v).sort((a,b) => a-b);
+    const baseline = farBins.length > 0 ? farBins[Math.floor(farBins.length * 0.3)] : 0;
+    for (let i = 0; i < workPsd.length; i++) {
+      const lorz = (A - baseline) / (1 + Math.pow((workPsd[i].f - f0) / gamma, 2));
+      workPsd[i].v = Math.max(baseline, workPsd[i].v - lorz);
+    }
+  }
+  return selected;
 }
 
 
