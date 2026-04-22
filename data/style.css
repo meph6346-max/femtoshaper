@@ -1,5 +1,5 @@
-/* FEMTO SHAPER v0.8 — Mainsail Dark Theme CSS */
-/* 최적화: 중복 제거, 축약 클래스, 최소 선언 */
+/* FEMTO SHAPER v0.8 Mainsail dark theme CSS */
+/* Consolidated layout styles with duplicate cleanup and lighter selectors. */
 
 :root{
 --bg:#121212;--bg1:#1e1e1e;--bg2:#272727;--bgi:#1a1a1a;
@@ -14,7 +14,7 @@ html{overflow-y:auto;scrollbar-color:#6b6b6b #272727}
 ::-webkit-scrollbar-thumb{background:#6b6b6b;border-radius:5px;border:2px solid #272727}
 body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5;min-height:100vh}
 
-/* 앱바 */
+/* App bar */
 .ab{position:sticky;top:0;z-index:100;background:#1e1e1e;border-bottom:1px solid var(--div);display:flex;align-items:center;padding:0 16px;height:48px;box-shadow:0 2px 4px rgba(0,0,0,.4)}
 .ab-logo{width:26px;height:26px;border-radius:var(--r);background:var(--pri);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;margin-right:10px;flex-shrink:0}
 .ab-t{font-size:15px;font-weight:500}
@@ -24,59 +24,59 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .ab-link:hover{opacity:1}
 .ab-st{font-size:10px;font-family:'Roboto Mono',monospace;color:var(--suc);background:rgba(76,175,80,.12);border:1px solid rgba(76,175,80,.3);border-radius:12px;padding:2px 8px;margin-right:10px}
 
-/* 언어 토글 */
+/* Language toggle */
 .lt{display:flex;border:1px solid var(--div);border-radius:var(--r);overflow:hidden}
 .lt btn,.lb{padding:3px 8px;font-size:10px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--tx3);transition:all .15s;font-family:'Roboto Mono',monospace}
 .lb.active{background:var(--pri);color:#fff}
 
-/* 메인 콘텐츠 */
+/* Main content */
 .mc{max-width:600px;margin:0 auto;padding:0 10px 80px}
 
-/* 탭바 */
+/* Tab bar */
 .tb{display:flex;background:var(--bg1);border-bottom:1px solid var(--div);position:sticky;top:48px;z-index:90}
 .tab{flex:1;padding:10px 0;font-size:12px;font-weight:500;color:var(--tx3);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:4px}
 .tab.active{color:var(--pri);border-bottom-color:var(--pri)}
 .ti{font-size:13px}
 
-/* 서브탭바 (Diagnostic) */
+/* Diagnostic sub-tab bar */
 .stb{display:flex;background:var(--bg2);border-bottom:1px solid var(--div);overflow-x:auto;-webkit-overflow-scrolling:touch}
 .stab{padding:8px 12px;font-size:11px;font-weight:500;color:var(--tx3);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:all .15s}
 .stab.active{color:var(--inf);border-bottom-color:var(--inf)}
 
-/* 페이지/서브페이지 */
+/* Pages and sub-pages */
 .pg{display:none;padding:12px 0}
 .pg.active{display:block}
 .spg{display:none}
 .spg.active{display:block}
 
-/* 카드 */
+/* Cards */
 .card{background:var(--bg1);border-radius:var(--rl);border:1px solid var(--div);margin-bottom:10px;overflow:hidden}
 .ct-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--div)}
 .ct-left{display:flex;align-items:center;gap:8px}
 .ct{font-size:13px;font-weight:500;color:var(--tx)}
 .rc{font-size:10px;font-family:'Roboto Mono',monospace;color:var(--tx3);background:var(--bg2);padding:2px 8px;border-radius:3px}
 
-/* 정보 그리드 (4열 요약) */
+/* Four-metric summary grid */
 .ig{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
 .ic{background:var(--bg1);border:1px solid var(--div);border-radius:var(--rl);padding:10px 8px;text-align:center}
 .il{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--tx3);font-family:'Roboto Mono',monospace;margin-bottom:2px}
 .iv{font-size:18px;font-weight:700;font-family:'Roboto Mono',monospace}
 
-/* 색상 유틸리티 */
+/* Color utilities */
 .c-pri{color:var(--pri)}.c-suc{color:var(--suc)}.c-wrn{color:var(--wrn)}.c-inf{color:var(--inf)}.c-err{color:var(--err)}
 
-/* 축 칩 */
+/* Axis badges */
 .ax{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;font-family:'Roboto Mono',monospace}
 .ax.x{background:rgba(33,150,243,.15);color:var(--pri);border:1px solid rgba(33,150,243,.3)}
 .ax.y{background:rgba(76,175,80,.15);color:var(--suc);border:1px solid rgba(76,175,80,.3)}
 .ax.a{background:rgba(33,150,243,.15);color:var(--pri);border:1px solid rgba(33,150,243,.3)}
 .ax.b{background:rgba(251,140,0,.15);color:var(--wrn);border:1px solid rgba(251,140,0,.3)}
 
-/* 차트 박스 */
+/* Chart box */
 .chb{position:relative;height:180px;padding:4px}
 .chb canvas{width:100%;height:100%}
 
-/* 쉐이퍼 테이블 */
+/* Shaper table */
 .sl{padding:4px 0}
 .sr{display:grid;grid-template-columns:56px 58px 48px 56px 46px 1fr 36px;align-items:center;padding:4px 10px;font-size:10px;font-family:'Roboto Mono',monospace;color:var(--tx2);border-bottom:1px solid rgba(255,255,255,.04)}
 .sr.rec{background:rgba(33,150,243,.06)}
@@ -85,16 +85,16 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .sb{padding:0 4px}
 .bb{height:4px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
 .bf{height:100%;border-radius:2px}
-/* 추천 태그 */
+/* Recommendation tags */
 .rec-tag{font-size:9px;padding:1px 5px;border-radius:2px;font-family:'Roboto Mono',monospace}
 .rec-p{background:rgba(33,150,243,.15);color:var(--pri);border:1px solid rgba(33,150,243,.3)}
 .rec-l{background:rgba(76,175,80,.15);color:var(--suc);border:1px solid rgba(76,175,80,.3)}
 
-/* 추천 요약 */
+/* Recommendation summary */
 .rec-sum{padding:8px 14px;font-size:11px;color:var(--tx2);line-height:1.6}
 .rec-sum strong{color:var(--tx)}
 
-/* 버튼 */
+/* Buttons */
 .br{display:flex;gap:8px;padding:8px 0;flex-wrap:wrap}
 .btn{padding:9px 14px;border-radius:var(--r);font-size:12px;font-weight:500;border:none;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:4px}
 .btn-pri{background:var(--pri);color:#fff}
@@ -105,18 +105,18 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .btn-err{background:rgba(255,82,82,.15);color:var(--err);border:1px solid rgba(255,82,82,.3)}
 .btn-sm{font-size:11px;padding:6px 10px}
 
-/* 프린터 설정 바 */
+/* Printer profile bar */
 .pcb{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--bg2);border:1px solid var(--div);border-radius:var(--r);margin-bottom:10px;font-size:10px;font-family:'Roboto Mono',monospace;color:var(--tx3)}
 .pcb-link{color:var(--pri);cursor:pointer;text-decoration:none;font-size:10px}
 
-/* 터미널 */
+/* Terminal */
 .term{background:var(--bg1);border:1px solid var(--div);border-radius:var(--rl);margin-top:10px;overflow:hidden}
 .term-bar{display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--div);font-size:10px;color:var(--tx3)}
 .term-dot{width:7px;height:7px;border-radius:50%;background:var(--suc)}
 .term-body{padding:8px 12px;max-height:160px;overflow-y:auto;font-family:'Roboto Mono',monospace;font-size:10px;line-height:1.7;color:var(--tx2)}
 .log-ok{color:var(--suc)}.log-warn{color:var(--wrn)}.log-err{color:var(--err)}.log-val{color:var(--inf)}
 
-/* Apply 다이얼로그 */
+/* Apply dialog */
 .apply-panel{display:none;background:var(--bg1);border:1px solid var(--div);border-radius:var(--rl);margin:10px 0;overflow:hidden}
 .apply-panel.open{display:block}
 .ap-head{padding:10px 14px;border-bottom:1px solid var(--div);font-size:13px;font-weight:500;display:flex;align-items:center;justify-content:space-between}
@@ -129,20 +129,20 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .ap-guide summary{font-size:11px;color:var(--tx3);cursor:pointer;padding:4px 0}
 .ap-guide pre{font-size:10px;color:var(--tx2);font-family:'Roboto Mono',monospace;padding:6px 0;white-space:pre-wrap}
 
-/* 접이식 섹션 */
+/* Collapsible sections */
 .collapse-header{padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);border-top:1px solid var(--div)}
-.collapse-header::before{content:'▸';transition:transform .2s}
+.collapse-header::before{content:'>';transition:transform .2s}
 .collapse-header.open::before{transform:rotate(90deg)}
 .collapse-body{display:none;padding:0 14px 10px}
 .collapse-body.open{display:block}
 
-/* 벨트 델타 */
+/* Bed values */
 .bd{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:10px 14px}
 .bd-item{text-align:center}
 .bd-lbl{font-size:9px;color:var(--tx3);font-family:'Roboto Mono',monospace;text-transform:uppercase;letter-spacing:.05em}
 .bd-val{font-size:22px;font-weight:700;font-family:'Roboto Mono',monospace}
 
-/* Diagnostic 카드 공통 */
+/* Shared diagnostic card styles */
 .diag-status{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
 .ds-item{background:var(--bg1);border:1px solid var(--div);border-radius:var(--rl);padding:10px 12px}
 .ds-label{font-size:9px;color:var(--tx3);font-family:'Roboto Mono',monospace;text-transform:uppercase}
@@ -154,14 +154,14 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .diag-msg{padding:10px 14px;font-size:11px;color:var(--tx2);line-height:1.6}
 .diag-msg.warn{background:rgba(251,140,0,.06);border-left:3px solid var(--wrn)}
 
-/* 칩 */
+/* Chips */
 .chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:3px;font-family:'Roboto Mono',monospace}
 .chip-suc{background:rgba(76,175,80,.15);color:var(--suc);border:1px solid rgba(76,175,80,.3)}
 .chip-wrn{background:rgba(251,140,0,.15);color:var(--wrn);border:1px solid rgba(251,140,0,.3)}
 .chip-err{background:rgba(255,82,82,.15);color:var(--err);border:1px solid rgba(255,82,82,.3)}
 .chip-sec{background:rgba(255,255,255,.08);color:var(--tx3);border:1px solid var(--div)}
 
-/* Live 인디케이터 */
+/* Live indicator */
 .lh{display:flex;align-items:center;gap:10px;padding:10px 14px}
 .ld{width:9px;height:9px;border-radius:50%;background:#555}
 .ld.on{background:var(--err);box-shadow:0 0 8px rgba(255,82,82,.5);animation:pulse 1s infinite}
@@ -170,7 +170,7 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .lf{margin-left:auto;font-size:11px;color:var(--tx3)}
 .lf strong{color:var(--tx);font-size:14px}
 
-/* 폼 */
+/* Forms */
 .fs{padding:12px 14px;border-bottom:1px solid var(--div)}
 .fs:last-child{border-bottom:none}
 .fs-t{font-size:12px;font-weight:500;color:var(--tx);margin-bottom:8px;display:flex;align-items:center;gap:6px}
@@ -180,14 +180,14 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .fi input,.fi select{padding:7px 8px;background:var(--bgi);border:1px solid var(--div);border-radius:var(--r);color:var(--tx);font-size:12px}
 .fi-hint{font-size:9px;color:var(--tx3);margin-top:2px}
 
-/* PM (Print 측정) */
+/* PM (Print Measure) */
 .pm-stats{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--div);font-size:11px;font-family:'Roboto Mono',monospace;color:var(--tx3)}
 .pm-stats span{color:var(--tx)}
 
-/* 분할선 */
+/* Divider */
 .divider{border:none;border-top:1px solid var(--div);margin:0}
 
-/* 반응형 */
+/* Responsive layout */
 @media(max-width:600px){
 .ig{grid-template-columns:repeat(2,1fr)}
 .fg{grid-template-columns:1fr}
@@ -205,26 +205,26 @@ body{font-family:Roboto,-apple-system,'Segoe UI',sans-serif;background:var(--bg)
 .diag-action-steps{margin:0;padding-left:20px;font-size:13px;line-height:1.6}
 .diag-action-steps li{margin:2px 0}
 
-/* 빈 그래프 안내 */
+/* Empty graph guide */
 .ch-empty{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--tx3);font-size:12px;text-align:center;pointer-events:none}
-/* 쉐이퍼 테이블 헤더 */
+/* Shaper table header */
 .sl-hdr{display:grid;grid-template-columns:1fr 50px 50px 60px 50px 1fr;gap:4px;padding:4px 14px;font-size:10px;color:var(--tx3);border-bottom:1px solid rgba(255,255,255,0.06)}
-/* ADXL 상태 인디케이터 */
+/* ADXL status indicator */
 .ab-st{font-size:11px;padding:2px 8px;border-radius:10px;white-space:nowrap;transition:all 0.3s}
 .ab-st.adxl-ok{color:#4CAF50;background:rgba(76,175,80,0.1)}
 .ab-st.adxl-fail{color:#FF5252;background:rgba(255,82,82,0.15);animation:pulse-fail 2s infinite}
 @keyframes pulse-fail{0%,100%{opacity:1}50%{opacity:0.6}}
-/* 데모 배너 */
+/* Demo banner */
 .demo-banner{background:rgba(255,152,0,0.12);color:#FFB74D;font-size:11px;padding:8px 14px;border-radius:8px;margin-bottom:8px;text-align:center;border:1px solid rgba(255,152,0,0.2)}
-/* 측정 상태 배지 */
+/* Measurement status badge */
 .meas-badge{font-size:11px;padding:4px 10px;border-radius:12px;background:rgba(255,193,7,0.15);color:#FFC107;animation:pulse-meas 1.5s infinite;white-space:nowrap}
 @keyframes pulse-meas{0%,100%{opacity:1}50%{opacity:0.6}}
-/* 저장 피드백 */
+/* Save feedback banner */
 .save-msg{text-align:center;padding:8px 12px;border-radius:6px;font-size:12px;margin:8px 0;animation:fadeIn .3s}
 .save-ok{background:rgba(163,190,140,0.15);color:#A3BE8C}
 .save-err{background:rgba(191,97,106,0.15);color:#BF616A}
 .save-pending{background:rgba(235,203,139,0.15);color:#EBCB8B}
 @keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
-/* 축 버튼 active 상태 */
+/* Secondary button active state */
 .btn-sec.active{background:var(--inf);color:#fff;border-color:var(--inf)}
 .wifi-item:hover{background:var(--bg3) !important}

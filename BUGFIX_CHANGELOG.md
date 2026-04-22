@@ -8,6 +8,33 @@
 
 ---
 
+### 2026-04-22 follow-up (Codex): SSE guard restore + English comment cleanup
+
+This pass focused on two things: recovering comment-swallowed runtime guards and
+converting the remaining obvious non-English code comments to English.
+
+**Runtime fixes**
+- Restored the missing `if (dspDualNewSeg)` guard in the print-measure SSE path,
+  so print SSE packets are only emitted after a fresh dual-axis segment update.
+- Restored the missing `if (liveSSEClient.connected())` guard in the live-mode
+  SSE path, so live packets are not formatted/written when no client is attached.
+- Cleaned the print-stop save CTA path in `data/measure.js` and removed the
+  duplicate frequency variable so the post-analysis save flow stays readable.
+
+**Comment / encoding cleanup**
+- Rewrote the remaining visible Korean/garbled comments in:
+  - `src/main.cpp`
+  - `data/app.js`
+  - `data/measure.js`
+  - `data/style.css`
+- Rebuilt `data/style.css` with the same style rules but English comments only.
+- Normalized the collapse toggle marker in CSS to an ASCII-safe `>` glyph.
+
+**Verification**
+- `node --check data/app.js`
+- `node --check data/measure.js`
+- non-ASCII comment re-scan on the touched files
+
 ## [BF-001] dsp.h: Static buffer retains stale data in dspNoiseFloor()
 
 - **File**: `src/dsp.h` line ~373

@@ -181,11 +181,10 @@ async function stopPrintMeasure() {
     setPrintMeasBtn('done');
     ledOn();
 
-    //
+    // Keep the save-result CTA visible after a successful analysis pass.
     const savedFreqX = xAnalysis?.recommended?.performance?.freq || d.peakX;
-    const savedFreqPerfX = xAnalysis?.recommended?.performance?.freq || d.peakX;
-    const savedFreqPerfY = yAnalysis?.recommended?.performance?.freq || d.peakY;
-    showSaveResultBtn(savedFreqPerfX, savedFreqPerfY);
+    const savedFreqY = yAnalysis?.recommended?.performance?.freq || d.peakY;
+    showSaveResultBtn(savedFreqX, savedFreqY);
 
   } catch(e) {
     // R9.1: stop - 'done'

@@ -1606,29 +1606,27 @@ void setup() {
   Serial.println("[HTTP] ??筌믨퀣援???http://192.168.4.1");
 }
 
-// ???? loop ??????????????????????????????????????????????????????????????????????????????????????????
-static const int BOOT_NOISE_TARGET = 1024 + 9 * DSP_STEP; // 10 segments ??0.8s
+// Main loop and background-noise bootstrap.
+static const int BOOT_NOISE_TARGET = 1024 + 9 * DSP_STEP; // 10 segments (~0.8 s)
 
 void loop() {
-  dnsServer.processNextRequest();  // ????? ?????DNS
+  dnsServer.processNextRequest();  // Keep captive-portal DNS responsive.
   server.handleClient();
 
   if (adxlOK) {
     adxlUpdate();
 
-    // ???? ?? ???? ?? ?PSD ????(?????? ? WiFi?? ? ?? ????
+    // Capture a startup background PSD before Wi-Fi or UI activity adds noise.
     if (!bootNoiseDone && measState == MEAS_IDLE) {
       if (bootNoiseSamples == 0) {
-      // ? ??????? ? ?? if (bootNoiseSamples == 0) {
-        dspBgSegs = 0;           // NVS ? ?? ? ? ???? ??????? ???????
+        dspBgSegs = 0;           // Start fresh before deciding whether to keep or fall back.
         dspReset();
-        
       }
       while (adxlCount > 0 && bootNoiseSamples < BOOT_NOISE_TARGET) {
         AdxlSample s = adxlBuf[adxlHead];
         adxlHead  = (adxlHead + 1) % ADXL_BUF_SIZE;
         adxlCount--;
-        // v0.9: ???? ? ?????? ???? ? ? ????? ??( ? ?? ????? ?????
+        // Project startup capture onto the calibrated X axis when available.
         int16_t val;
         if (cfg.useCalWeights) {
           val = (int16_t)(cfg.calWx[0]*s.x + cfg.calWx[1]*s.y + cfg.calWx[2]*s.z);
@@ -1641,9 +1639,9 @@ void loop() {
       if (bootNoiseSamples >= BOOT_NOISE_TARGET || millis() > 10000) {
         bootNoiseDone = true;
         if (dspBgSegs > 0) {
-          // v0.9: ????????? ??? ????? ?seg 1-5) vs ?? ?seg 6-10) ???? ? ?????
-          // dspBgPsd = seg 1-5 ?????(dsp.h?????seg 5 ?? ?? ????
-          // _psdSum/10 = seg 1-10 ?? ??????? // ?? ??????= (?? ??10 - ?? ?5) / 5
+          // Compare early vs late segments so a shaky startup capture can be rejected.
+          // dspBgPsd already contains the first 5 segments from dsp.h.
+          // _psdSum / _segCount is the total average, so derive the later average from it.
           float eFirst = 0, eSecond = 0;
           for (int k = dspBinMin(); k <= dspBinMax(); k++) {
             if (_segCount <= 0) break;
@@ -1659,35 +1657,35 @@ void loop() {
           bool consistent = (ratio > 0.5f && ratio < 2.0f);
 
           if (consistent) {
-            // ????????? ???????? ? ? ?bgPsd??????(??? ?)
+            // Stable enough: keep the live capture as the background PSD.
             dspUpdateAccum();
             for (int k = dspBinMin(); k <= dspBinMax(); k++)
               dspBgPsd[k] = dspPsdAccum[k];
             saveBgPsdToNVS();
             Serial.printf("[BOOT] bgPsd OK (ratio=%.2f, %d samples)\n", ratio, bootNoiseSamples);
           } else {
-            // ?????? ?????WiFi ???? ?? ??????? ?? ???? ???NVS ?????
+            // Startup noise was inconsistent, so fall back to the last saved PSD.
             loadBgPsdFromNVS();
             Serial.printf("[BOOT] bgPsd inconsistent (ratio=%.2f) ??NVS fallback\n", ratio);
           }
         } else {
-          // ???????? ??NVS ?????? ??
+          // No valid startup capture; restore the last saved background PSD.
           loadBgPsdFromNVS();
           Serial.println("[BOOT] Capture failed ??NVS fallback restored");
         }
-        // v0.9: ? ?? ????? ? ?? ?????? ?? ?? threshold ?? ??
+        // Recompute the sweep-detection baseline from the final background PSD.
         dspBgEnergy = 0;
         for (int k = dspBinMin(); k <= dspBinMax(); k++) dspBgEnergy += dspBgPsd[k];
         if (dspBgEnergy < 50.0f) dspBgEnergy = 50.0f;
         Serial.printf("[BOOT] bgEnergy=%.0f ??sweep threshold base\n", dspBgEnergy);
-        dspReset();  // sweepDetect ??? ON??? ??? ??
+        dspReset();  // Resume normal sweep detection after boot-noise capture.
       }
     }
 
-    // v1.0: Print Measure ??????DSP
+    // Print Measure DSP pipeline.
     else if (measState == MEAS_PRINT) {
-      const float scale = 0.0039f * 9.80665f;  // raw ??m/s ?
-      // R20.35: ADXL disconnect detection - ???? ??5? ??? ? ?? ??
+      const float scale = 0.0039f * 9.80665f;  // Convert raw ADXL units to m/s^2.
+      // R20.35: Abort if the ADXL stream goes silent for too long during a run.
       static uint32_t _measStartMs = 0;
       static uint32_t _measSamples = 0;
       if (_measStartMs == 0) { _measStartMs = millis(); _measSamples = 0; }
@@ -1708,11 +1706,11 @@ void loop() {
         float projY = cfg.calWy[0]*ax + cfg.calWy[1]*ay + cfg.calWy[2]*az;
         dspFeedDual(projX, projY);
       }
-      // SSE: ????? ?? ????? ???? ??? ???? ???? ? if (dspDualNewSeg) {
+      if (dspDualNewSeg) {
         dspDualNewSeg = false;
         if (liveSSEClient.connected()) {
           dspUpdateDual();
-          char buf[2048];  // 59?????? ??B = ~1000B + ????
+          char buf[2048];  // Room for the full PSD payload plus metadata.
           int len = snprintf(buf, sizeof(buf),
             "data: {\"m\":\"print\",\"sx\":%d,\"sy\":%d,\"st\":%d,\"gr\":%.2f,\"bx\":[",
             dspDualSegCountX(), dspDualSegCountY(), dspDualSegTotal(), dspDualGateRatio());
@@ -1745,7 +1743,7 @@ void loop() {
     } else {
       // IDLE/DONE
       if (liveMode && (measState == MEAS_IDLE || measState == MEAS_DONE)) {
-        // v1.0: ?? ???= ????DSP ? ?? ? ? ???
+        // In live mode, keep dual-axis DSP running outside of print measurement too.
         const float scale = 0.0039f * 9.80665f;
         while (adxlCount > 0) {
           AdxlSample s = adxlBuf[adxlHead];
@@ -1757,16 +1755,16 @@ void loop() {
             projX = cfg.calWx[0]*ax + cfg.calWx[1]*ay + cfg.calWx[2]*az;
             projY = cfg.calWy[0]*ax + cfg.calWy[1]*ay + cfg.calWy[2]*az;
           } else {
-            projX = ax; projY = ay;  // ? ???????? ???????
+            projX = ax; projY = ay;  // Default to the sensor's native X/Y axes.
           }
           dspFeedDual(projX, projY);
         }
-        // cfg.liveSegs ? ? ?? ??SSE ?? ? 30? ? ?? ??? ?? ?? ??
+        // Publish SSE updates every cfg.liveSegs segments and reset after 30 segments.
         int segNow = dspDualSegTotal();
         if (segNow - liveSegReset >= cfg.liveSegs) {
           liveSegReset = segNow;
           dspUpdateDual();
-          // SSE: ????PSD ?? ? if (liveSSEClient.connected()) {
+          if (liveSSEClient.connected()) {
             char buf[2048];
             int len = snprintf(buf, sizeof(buf),
               "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"bx\":[",
@@ -1796,7 +1794,7 @@ void loop() {
               "],\"pkx\":%.1f,\"pky\":%.1f}\n\n", pkX, pkY);
             liveSSEClient.write((uint8_t*)buf, len);
           }
-          // 30? ? ?? ??? ?? ?? ??(PSD ??? ??????)
+          // Reset periodically so the live PSD stays responsive instead of growing forever.
           if (segNow >= 30) {
             dspResetDual();
             liveSegReset = 0;
@@ -1804,7 +1802,7 @@ void loop() {
           if (!liveSSEClient.connected()) { liveMode = false; }
         }
       } else {
-        // ????????? ? ? ??????? ??? ?? ?
+        // Keep the raw ring buffer from overflowing when DSP is idle.
         if (adxlCount > 32) {
           uint8_t drop = adxlCount - 4;
           adxlHead = (adxlHead + drop) % ADXL_BUF_SIZE;
