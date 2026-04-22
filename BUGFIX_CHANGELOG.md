@@ -8,6 +8,44 @@
 
 ---
 
+### 2026-04-22 round 13 (Claude Opus 4.7): buffer-sizing audit at sampleRate extremes — 3 more bugs, one CRITICAL
+
+Methodology: for every byte-sized buffer, compute the worst case at the
+extreme sample rate (400Hz, where bins/axis is 12x the 3200Hz default).
+Previous rounds audited SSE paths; this round caught the /api/psd
+endpoint buffer that had never been re-sized since v1.0.
+
+**Fixed (3):**
+
+- **CRITICAL**: `_jbuf` (the `/api/psd?mode=print` response buffer) was
+  8KB, sized for 59 bins/axis at 3200Hz. At 400Hz sampleRate there are
+  465 bins/axis and each serialises as a ~30B object, so the full PSD
+  response (binsX + binsY + jerkX + jerkY + bgPsd) runs ~35KB. sendJson
+  correctly detected the overflow and returned HTTP 507, making the
+  entire Print-Measure flow fail end-to-end whenever sampleRate was
+  non-default. Bumped _jbuf to 32KB (ESP32-C3 has 400KB DRAM).
+- **MEDIUM**: Live SSE per-frame buffer was 4KB after round 10. Worst
+  case at 400Hz is ~5800B (465 values × 5 chars × 2 arrays + header/
+  trailer). My round-10 calculation was off and the loop guard would
+  silently truncate mid-array, giving the client malformed JSON that
+  its try/catch swallowed. Bumped to 8KB with sizing comments.
+- **LOW**: `window._pollFailCount` in `data/measure.js` never reset on
+  successful poll, so a flaky connection with 5 *total* failures spread
+  over the session would stop polling even though most polls succeeded.
+  Fixed to reset on each successful poll so the 5-fail threshold is
+  now truly consecutive.
+
+**Verification:**
+```
+g++ -c -O2 -Wall -Wextra -I/tmp/stubs src/main.cpp   # 0 warnings
+braces/parens balanced
+node --check data/measure.js                         # pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND13.md`](./BUGFIX_COMMENT_ABSORB_ROUND13.md).
+
+**Running total:** 174 (before) + 3 = **177 bugs fixed**.
+
 ### 2026-04-22 round 12 (Claude Opus 4.7): numerical edges + validation gaps — 6 more bugs
 
 Methodology: every `doc["X"].as<float/int>()` without a subsequent bounds

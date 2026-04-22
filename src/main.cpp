@@ -36,7 +36,13 @@ const IPAddress AP_IP(192, 168, 4, 1);
 WebServer   server(80);
 
 // Reusable JSON serialisation buffer (avoids heap churn on every response).
-static char _jbuf[8192];  // v1.0: sized for full PSD (binsX+binsY+bgPsd, ~6.2KB)
+// 32 KB covers the worst case: /api/psd?mode=print at cfg.sampleRate=400 has
+// 465 bins per axis with objects like `{"f":18.75,"v":0.01,"var":0.0}` (~30 B
+// each), so binsX + binsY + jerkX + jerkY + bgPsd can total ~35 KB-equivalent
+// before ArduinoJson compression. The old 8 KB sized for the 3200Hz-only case
+// (59 bins/axis) and made the PSD endpoint 507-fail at every non-default rate.
+// ESP32-C3 has 400 KB of DRAM; 32 KB static is trivially affordable.
+static char _jbuf[32768];
 inline void sendJson(JsonDocument& doc) {
   // R32: measureJson() predicts length before serializing to prevent truncation
   size_t need = measureJson(doc);
@@ -1897,10 +1903,12 @@ void loop() {
         dspDualNewSeg = false;
         if (liveSSEClient.connected()) {
           dspUpdateDual();
-          // 4KB so we can safely serialise 2 arrays of up to ~465 bins (the
-          // 400Hz sampleRate case). At 2KB the loop guard would silently
-          // truncate mid-array and the client's JSON.parse would fail.
-          char buf[4096];  // Room for the full PSD payload plus metadata.
+          // 8KB: at 400Hz sampleRate we have 465 bins/axis. With up to 5 chars
+          // per value + comma that's ~2800 bytes per array, so 2 arrays + header
+          // + trailer is about 5.8KB. Round 10 bumped from 2KB to 4KB but that
+          // still truncated mid-array at 400Hz; 8KB clears the worst case with
+          // margin. ESP32-C3 has ~400KB RAM, so 8KB on the stack is trivial.
+          char buf[8192];  // Room for the full PSD payload plus metadata.
           // fr/bm expose the bin geometry so clients can label axes correctly
           // at any cfg.sampleRate (live chart used to hard-code 3.125Hz/bin).
           int len = snprintf(buf, sizeof(buf),
@@ -1958,10 +1966,12 @@ void loop() {
           liveSegReset = segNow;
           dspUpdateDual();
           if (liveSSEClient.connected()) {
-            // 4KB so we can safely serialise 2 arrays of up to ~465 bins (the
-          // 400Hz sampleRate case). At 2KB the loop guard would silently
-          // truncate mid-array and the client's JSON.parse would fail.
-          char buf[4096];
+            // 8KB: at 400Hz sampleRate we have 465 bins/axis. With up to 5 chars
+          // per value + comma that's ~2800 bytes per array, so 2 arrays + header
+          // + trailer is about 5.8KB. Round 10 bumped from 2KB to 4KB but that
+          // still truncated mid-array at 400Hz; 8KB clears the worst case with
+          // margin. ESP32-C3 has ~400KB RAM, so 8KB on the stack is trivial.
+          char buf[8192];
             // fr/bm added so clients can derive Hz-per-bin at any sampleRate.
             int len = snprintf(buf, sizeof(buf),
               "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"fr\":%.4f,\"bm\":%d,\"bx\":[",

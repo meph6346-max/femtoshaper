@@ -280,9 +280,11 @@ function startPrintPolling() {
         const doneBtn = document.getElementById('btnPmDone');
         if (doneBtn) doneBtn.classList.add('btn-pulse');
       }
+      // R8.2: consecutive-failure counter. Reset on success so a cumulative
+      // 5-fail total spread across the session does not falsely stop polling;
+      // only 5 failures in a row (never reset) trigger the bail-out.
+      window._pollFailCount = 0;
     } catch(e) {
-      // R8.2: 5
-      if (typeof _pollFailCount === 'undefined') window._pollFailCount = 0;
       window._pollFailCount = (window._pollFailCount || 0) + 1;
       if (window._pollFailCount > 5) {
         appLog('logShaper', `<span class="log-err">\u26A0</span> 상태 폴링 실패 반복 — 네트워크 확인: ${_escLog(e.message)}`);
