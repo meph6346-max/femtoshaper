@@ -8,6 +8,47 @@
 
 ---
 
+### 2026-04-22 round 6 (Claude Opus 4.7): finish-line pass — axis params + log cleanup
+
+Round 5 left three items flagged "suspicious but unchanged — needs design
+intent": the unused `?axis=` param on `/api/psd`, the unused `axis` body
+on `/api/live/axis`, and a dozen Korean-garbled `Serial.print*` messages.
+User approved implementing best-guess semantics for the two API params
+and a mechanical ASCII rewrite for the log strings.
+
+**Fixed (3 bugs):**
+
+- `/api/psd?axis=x|y` now actually selects the requested PSD:
+  `axis=x` returns `dspDualPsdX[k]`, `axis=y` returns `dspDualPsdY[k]`,
+  and default (no arg or `current`) preserves the previous behaviour
+  (`dspPsdAccum[k]` with variance). Response echoes `doc["axis"]` so
+  callers can confirm. No wire-format change for callers that don't
+  send `?axis=`.
+- `/api/live/axis` now persists a module-scope `liveAxis` char
+  (`'x' | 'y' | 'a'`) and echoes it in the JSON response. SSE payload
+  format left unchanged for client compatibility — the variable is a
+  hook for future use but the compiler warning is gone.
+- 8 `Serial.print*` log messages rewritten from garbled Korean to
+  ASCII (lines 225, 233, 281, 282, 1207, 1246, 1868, 1902). Also
+  resolves the spurious `-Wtrigraphs` warning at line 1246 (was
+  1232 pre-edit) caused by a `??(` byte sequence inside the garbled
+  `[MEAS]` done message.
+
+**Verification:**
+```
+braces 270/270 [+0], parens 1466/1466 [+0]  OK       (main.cpp)
+braces 102/102 [+0], parens  307/307 [+0]  OK        (dsp.h)
+g++ -c -O2 -Wall -Wextra -I/tmp/stubs src/main.cpp   # 0 errors,
+                                                       # 1 pre-existing warning
+node --check + sim_*.js                              # all pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND6.md`](./BUGFIX_COMMENT_ABSORB_ROUND6.md)
+for per-bug detail and the updated "still out of scope" list (`/api/live/axis`
+is not yet called from `data/live.js`; comment-level Korean text remains).
+
+**Running total:** 137 (before) + 3 = **140 bugs fixed**.
+
 ### 2026-04-22 round 5 (Claude Opus 4.7): 4 more fixes — first round run through `g++ -fsyntax-only`
 
 Round 4 closed the unclosed string literals, which newly exposed real code

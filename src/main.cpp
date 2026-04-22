@@ -222,7 +222,7 @@ bool adxlInit() {
     delay(5);
 
     adxlDevId = spiRead(REG_DEVID);
-    Serial.printf("[ADXL] ??筌먲퐣??%d/3: DevID=0x%02X %s\n",
+    Serial.printf("[ADXL] init attempt %d/3: DevID=0x%02X %s\n",
       attempt, adxlDevId, adxlDevId == 0xE5 ? "OK" : "FAIL");
 
     if (adxlDevId == 0xE5) break;
@@ -230,8 +230,8 @@ bool adxlInit() {
   }
 
   if (adxlDevId != 0xE5) {
-    Serial.println("[ADXL] ?縕?猿녿뎨??????됰꽡 ???袁⑸즲?節덈빝??嶺뚮Ĳ?됮?");
-    Serial.printf("  SCK???좊퀎IO%d  MISO???좊퀎IO%d  MOSI???좊퀎IO%d  CS???좊퀎IO%d\n",
+    Serial.println("[ADXL] SPI communication failed - check wiring");
+    Serial.printf("  SCK=GPIO%d  MISO=GPIO%d  MOSI=GPIO%d  CS=GPIO%d\n",
       cfg.pinSCK, cfg.pinMISO, cfg.pinMOSI, cfg.pinCS);
     return false;
   }
@@ -278,8 +278,8 @@ bool adxlInit() {
   // Test read to confirm SPI link is good before returning success
   int16_t tx, ty, tz;
   spiReadXYZ(tx, ty, tz);
-  Serial.printf("[ADXL] ?縕?猿녿뎨????Β???? X=%d Y=%d Z=%d\n", tx, ty, tz);
-  Serial.printf("[ADXL] ?縕?猿녿뎨????ш끽維?? %dHz / 嶺?g FR / Stream(WM=25)\n", cfg.sampleRate);
+  Serial.printf("[ADXL] self-test reading: X=%d Y=%d Z=%d\n", tx, ty, tz);
+  Serial.printf("[ADXL] ready: %dHz / 16g FR / Stream(WM=25)\n", cfg.sampleRate);
   return true;
 }
 
@@ -1123,8 +1123,11 @@ void handleGetPsd() {
     return;
   }
 
-  // axis ???? ? ? ?? ? ??
+  // axis query parameter: "x" => dspDualPsdX, "y" => dspDualPsdY,
+  // anything else (including "current" / missing) => single-axis accumulator.
   const char* axis = server.hasArg("axis") ? server.arg("axis").c_str() : "current";
+  const bool useX = (strcmp(axis, "x") == 0);
+  const bool useY = (strcmp(axis, "y") == 0);
 
   DspStatus st = dspGetStatus();
   JsonDocument doc;
@@ -1140,13 +1143,24 @@ void handleGetPsd() {
   doc["freqRes"]   = freqRes;
   doc["measState"] = (measState == MEAS_PRINT) ? "print" :
                      (measState == MEAS_DONE) ? "done" : "idle";
-  // PSD bins (18.75~200Hz) + v0.9 ?? ?
+  doc["axis"]      = useX ? "x" : (useY ? "y" : "current");
+  // PSD bins (18.75~200Hz). Source depends on axis:
+  //  - axis=x/y => dspDualPsdX/Y (dual-axis spectra, populated in live+print)
+  //  - default  => dspPsdAccum (single-axis accumulator, with per-bin variance)
   JsonArray bins = doc["bins"].to<JsonArray>();
   for (int k = binMin; k <= binMax; k++) {
     JsonObject b = bins.add<JsonObject>();
     b["f"] = k * freqRes;
-    b["v"] = dspPsdAccum[k];
-    b["var"] = dspPsdVar[k];  // v0.9: ? ?? ??????? ?
+    if (useX) {
+      b["v"]   = dspDualPsdX[k];
+      b["var"] = 0.0f;
+    } else if (useY) {
+      b["v"]   = dspDualPsdY[k];
+      b["var"] = 0.0f;
+    } else {
+      b["v"]   = dspPsdAccum[k];
+      b["var"] = dspPsdVar[k];
+    }
   }
   // peaks[] ??dsp.h dspFindPeaks() ? ??? ?????(diagnostic.js Stage 2 ????
   JsonArray peaksArr = doc["peaks"].to<JsonArray>();
@@ -1190,7 +1204,7 @@ void handleMeasure() {
     measState = MEAS_PRINT;
     ledState  = LED_BLINK;
     res["ok"] = true; res["state"] = "print";
-    Serial.println("[MEAS] ???살쓴鶯??濡ろ떟?????筌믨퀣援?(????DSP)");
+    Serial.println("[MEAS] print measurement started (dual-axis DSP)");
   }
   else if (strcmp(cmd,"print_stop")==0) {
     // v1.0: ??? ???????
@@ -1229,7 +1243,7 @@ void handleMeasure() {
     res["convergenceX"] = dspDualConvergence('x');
     res["convergenceY"] = dspDualConvergence('y');
     res["sweepDetected"] = true;
-    Serial.printf("[MEAS] ???살쓴鶯??濡ろ떟?????ш끽維??(X:%.1fHz/%d Y:%.1fHz/%d gate:%.0f%% corr:%.0f%%)\n",
+    Serial.printf("[MEAS] done: X:%.1fHz/%d Y:%.1fHz/%d gate:%.0f%% corr:%.0f%%\n",
       peakFreqX, segCountX, peakFreqY, segCountY,
       dspDualGateRatio()*100, dspDualCorrelation()*100);
   }
@@ -1337,14 +1351,26 @@ void handleLiveStop() {
   Serial.println("[LIVE] SSE stream stopped");
 }
 
+// Live-mode axis preference. Stored server-side for clients that want to
+// restore their last selection; the SSE payload itself always carries both
+// bx[] and by[], so switching this does not change wire format.
+static char liveAxis = 'a';  // 'x', 'y', or 'a' (all)
+
 void handleLiveAxis() {
   if (!checkBodyLimit(8192)) return;
   JsonDocument req;
   if (deserializeJson(req, server.arg("plain"))) { server.send(400,"text/plain","JSON"); return; }
   const char* ax = req["axis"] | "a";
-  // PSD ? ???????? ??? ???? ?? ??
+  if (ax[0] == 'x' || ax[0] == 'y' || ax[0] == 'a') {
+    liveAxis = ax[0];
+  }
+  // Reset DSP so the next segment starts clean after switching axis.
   if (liveMode) { dspReset(); }
-  server.send(200, "application/json", "{\"ok\":true}");
+  JsonDocument res;
+  res["ok"] = true;
+  const char axStr[2] = { liveAxis, '\0' };
+  res["axis"] = axStr;
+  sendJson(res);
 }
 
 // v0.9: WiFi ????
@@ -1377,7 +1403,7 @@ void setup() {
   // Detect wake-up cause (deep sleep recovery path)
   esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
   if (wakeup == ESP_SLEEP_WAKEUP_GPIO) {
-    Serial.println("[WAKE] GPIO ???쒒??癲?(???됰씭肄???源낆춭??");
+    Serial.println("[WAKE] GPIO wakeup (reset button)");
   } else if (wakeup != ESP_SLEEP_WAKEUP_UNDEFINED) {
     Serial.printf("[WAKE] ????? %d\n", wakeup);
   }
@@ -1471,7 +1497,7 @@ void setup() {
       Serial.printf("[WiFi] STA connected! IP: %s (Heap: %u)\n",
         WiFi.localIP().toString().c_str(), ESP.getFreeHeap());
     } else {
-      Serial.println("[WiFi] STA failed ??fallback to AP mode");
+      Serial.println("[WiFi] STA failed - fallback to AP mode");
       WiFi.disconnect(true);
       delay(100);
     }
@@ -1492,7 +1518,7 @@ void setup() {
         apStarted = true;
         break;
       }
-      Serial.printf("[WiFi] AP start failed ??retry %d/3\n", attempt);
+      Serial.printf("[WiFi] AP start failed - retry %d/3\n", attempt);
       WiFi.softAPdisconnect(true);
       delay(200);
     }
@@ -1501,7 +1527,7 @@ void setup() {
       AP_SSID, WiFi.softAPIP().toString().c_str(), txPowerLevel, ESP.getFreeHeap());
 
     if (!apStarted) {
-      Serial.println("[WiFi] AP failed ??reboot in 5s");
+      Serial.println("[WiFi] AP failed - reboot in 5s");
       delay(5000);
       ESP.restart();
     }
@@ -1623,7 +1649,7 @@ void setup() {
   });
 
   server.begin();
-  Serial.println("[HTTP] ??筌믨퀣援???http://192.168.4.1");
+  Serial.println("[HTTP] server ready at http://192.168.4.1");
 }
 
 // Main loop and background-noise bootstrap.
@@ -1839,7 +1865,7 @@ void loop() {
     // Free heap check - if below 40KB, WiFi stack may become unstable
     uint32_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < 40000) {
-      Serial.printf("[HEAP] ??ш낄援?? %u bytes ??WiFi ??됰씭??????좊읈???n", freeHeap);
+      Serial.printf("[HEAP] low: %u bytes - WiFi may become unstable\n", freeHeap);
       // ???? ????? ? ?? ? ???? ?? ?? ????? ??
       if (measState == MEAS_IDLE || measState == MEAS_DONE) {
         if (freeHeap < 20000) {
@@ -1860,7 +1886,7 @@ void loop() {
       if (apFailCount <= 2) {
         WiFi.reconnect();
       } else {
-        Serial.println("[WiFi] STA failed ??fallback to AP");
+        Serial.println("[WiFi] STA failed - fallback to AP");
         WiFi.disconnect(true);
         delay(100);
         WiFi.mode(WIFI_AP);
@@ -1873,7 +1899,7 @@ void loop() {
       }
     } else if (WiFi.softAPIP() == IPAddress(0,0,0,0)) {
       apFailCount++;
-      Serial.printf("[WiFi] AP ?怨뚮옖甕걔??%d/3 (heap: %u)\n", apFailCount, freeHeap);
+      Serial.printf("[WiFi] AP recovery attempt %d/3 (heap: %u)\n", apFailCount, freeHeap);
       if (apFailCount <= 1) {
         WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);
       } else if (apFailCount <= 2) {
