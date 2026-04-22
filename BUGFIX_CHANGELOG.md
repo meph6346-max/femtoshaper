@@ -8,6 +8,55 @@
 
 ---
 
+### 2026-04-22 round 4 (Claude Opus 4.7): 5 more unclosed-string bugs (three huge runaways)
+
+After round 3 merged (PR #2), a deeper scan found that the round-3 brace
+balance was still a false-positive: **three additional unterminated string
+literals** were hiding code from the checker, one of them eating **200+
+lines** of real source. The runaways happened to open-and-close in pairs
+so the `{`/`}` counts coincidentally balanced.
+
+**Found and fixed (5 more unclosed-string bugs, all in `src/main.cpp`):**
+
+- line 43: `Serial.printf("[JSON] Response too large: %u > %u` contained a
+  **literal newline** instead of `\n`. Ill-formed in standard C++; most
+  compilers would error. The string closed on the next physical line
+  via a stray `"`, so the brace checker saw it as balanced.
+- line 411: `"{\"ok\":true,\"msg\":\"<garbled>?"}"` — the final `"` before
+  `}` lost its `\` escape. String closed prematurely, leaving `}")` as
+  syntax-level gibberish and starting a new unterminated string.
+- line 457: `Serial.println("[NVS] <garbled>);` — missing closing `"`.
+  Runaway string absorbed **lines 458–658** (all of `loadConfig` +
+  `saveConfig` + `handleGetConfig` + start of `handlePostConfig`).
+- line 1846: `Serial.println("[HEAP] <garbled>);` — missing closing `"`.
+- line 1891: `Serial.println("[WiFi] Stage 3 <garbled>);` — missing closing
+  `"`. Runaway string absorbed **lines 1891–EOF** (~47 lines).
+
+**How the hiding cascade worked:** Each unclosed `"` puts the parser into
+string-mode until the next `"`. That next `"` was usually another opening
+quote elsewhere, which now appeared to "close" the runaway and then left
+a different opening quote unterminated. Net result: `{ } ( )` counts
+inside the runaway were skipped, and the file *looked* balanced.
+
+**Detection technique:** Wrote a Python scan that tracks `"` / `'` state
+byte-by-byte and flags any line that ENDS with the parser still inside a
+string literal. Ran it on every `.cpp` / `.h` / `.js` file in the repo.
+This class of bug is now mechanically discoverable.
+
+**Verification:**
+```
+before round 4: braces 250/250 [+0], parens 1402/1402 [+0]  OK (false positive)
+after  round 4: braces 265/265 [+0], parens 1456/1456 [+0]  OK (real)
+# 15 new braces + 54 new parens are now visible to the checker because they
+# are no longer absorbed into runaway string literals.
+```
+
+**Full write-up:** see [`BUGFIX_COMMENT_ABSORB_ROUND4.md`](./BUGFIX_COMMENT_ABSORB_ROUND4.md)
+for per-bug detail, the Python scanner, and why the previous
+"brace-count OK" check was insufficient on its own.
+
+**Running total:** 128 (before) + 5 = **133 bugs fixed**.
+
 ### 2026-04-22 round 3 (Claude Opus 4.7): 4 more absorbed-code bugs + one hidden-by-runaway-string
 
 Paren-balance sweep showed `main.cpp` still had `+2` unmatched `(`. The
