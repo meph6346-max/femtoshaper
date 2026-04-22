@@ -8,6 +8,42 @@
 
 ---
 
+### 2026-04-22 round 17 (Claude Opus 4.7): tab-switch resource symmetry — 2 more bugs
+
+R16 was a handler-rewire pattern. R17 follows the same "resource A changed,
+B wasn't updated to match" chain to resource PAIRS that share a lifecycle.
+
+**Fixed (2):**
+
+- **MEDIUM**: `switchTab` in data/app.js killed the 10-second
+  stale-connection watchdog on tab leave but left `liveEventSource`
+  open. When the user returns to the live tab, the watchdog is NOT
+  re-created (only `toggleLive` schedules it; `initLive` does not).
+  A subsequent WiFi glitch goes undetected and the live chart
+  silently freezes. Removed the clearInterval - watchdog already
+  self-terminates when `liveRunning` goes false, so it's safe to
+  keep running across tab switches.
+- **MEDIUM**: `switchTab` entering shaper didn't call
+  `resumePrintMeasureIfActive()`. User starts a measurement, switches
+  to settings, returns to shaper - progress % and segCount stay
+  frozen at the pre-switch values even though the server measurement
+  is still running. Called the existing helper (already used at page
+  load) inside the same `setTimeout(..., 100)` that redraws the PSD
+  charts so both reconnect together.
+
+Both are **resource-pair asymmetry**: watchdog ↔ EventSource, and
+stopPolling ↔ resumePolling.
+
+**Verification:**
+```
+node --check data/app.js      # pass
+node --check data/live.js     # pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND17.md`](./BUGFIX_COMMENT_ABSORB_ROUND17.md).
+
+**Running total:** 183 (before) + 2 = **185 bugs fixed**.
+
 ### 2026-04-22 round 16 (Claude Opus 4.7): client-side chain — watchdog handler rewire
 
 R10-R15 chased the server-side chain. R16 carries the same "chase the

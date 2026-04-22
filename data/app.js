@@ -39,20 +39,28 @@ function switchTab(id) {
   if (id !== 'shaper' && typeof stopPrintPolling === 'function') {
     stopPrintPolling();
   }
-  // R57.2: live watchdog
-  if (id !== 'live' && typeof window !== 'undefined' && window._liveWatchdog) {
-    clearInterval(window._liveWatchdog);
-    window._liveWatchdog = null;
-  }
-  // ? ????? ??PSD ??redraw
+  // R57.2: do NOT clear the live watchdog here. The watchdog self-terminates
+  // when `liveRunning` becomes false (see data/live.js internal guard). If we
+  // kill it on tab switch but leave `liveEventSource` open, a subsequent
+  // WiFi glitch goes undetected and the user's live stream silently stalls
+  // until they toggle LIVE off/on. (Previous R57.2 code cleared the
+  // interval here - removed.)
+  // Entering the Shaper tab: redraw PSDs after the tab becomes visible,
+  // AND resume print polling if the server still has a measurement in
+  // progress. Previously leaving+returning to shaper left polling dead
+  // even though the server measurement was still running, so the UI
+  // showed stale segCount/progress until the user clicked Done or
+  // restarted the measurement.
   if (id === 'shaper') {
     setTimeout(() => {
-      // rawPSD ? + freq
       if (typeof realPsdX !== 'undefined' && realPsdX) {
         drawPSD('cX', realPsdX, peakFreqXGlobal || 0, '#2196F3');
       }
       if (typeof realPsdY !== 'undefined' && realPsdY) {
         drawPSD('cY', realPsdY, peakFreqYGlobal || 0, '#4CAF50');
+      }
+      if (typeof resumePrintMeasureIfActive === 'function') {
+        resumePrintMeasureIfActive();
       }
     }, 100);
   }
