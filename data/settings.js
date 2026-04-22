@@ -497,14 +497,6 @@ function resetDebugDefaults() {
 // 결과: printerX = wxX·ax + wxY·ay + wxZ·az (6개 가중치)
 let _calWeights = null; // {wx:[wxX,wxY,wxZ], wy:[wyX,wyY,wyZ]}
 
-function vecNorm(v) { const m = Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]); return m > 1e-9 ? [v[0]/m,v[1]/m,v[2]/m] : [0,0,0]; }
-function vecDot(a,b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
-function vecCross(a,b) { return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
-function vecSub(a,b) { return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]; }
-function vecScale(v,s) { return [v[0]*s,v[1]*s,v[2]*s]; }
-function vecLen(v) { return Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]); }
-
-
 // ══════════════════════════════════════════════════════
 // v1.0 캘리브레이션 v2 — 공분산 기반 + 움직임 감지 + 팬 측정
 // 센서 부착 각도 무관, 모든 설정은 설정 페이지에서 변경 가능

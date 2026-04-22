@@ -370,7 +370,8 @@ float dspNoiseFloor() {
   if (kMin > binMax - 4)  kMin = binMax - 4;
 
   int n = binMax - kMin + 1;
-  static float tmp[DSP_NBINS];
+  if (n <= 0 || n > DSP_NBINS) return 0.0f;
+  float tmp[DSP_NBINS];
   for (int i = 0; i < n; i++) tmp[i] = dspPsdAccum[kMin + i];
   // 삽입 정렬
   for (int i = 1; i < n; i++) {
