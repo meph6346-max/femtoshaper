@@ -330,7 +330,7 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     };
     showSaveResultBtn(true);
   } catch (e) {
-    appLog('logShaper', `<span class="log-err">X</span> ${t('pm_analysis_err') || 'Analysis failed'}: ${e.message}`);
+    appLog('logShaper', `<span class="log-err">X</span> ${t('pm_analysis_err') || 'Analysis failed'}: ${_escLog(e.message)}`);
   }
 }
 function updateShaperUI(peakX, peakY, xAn, yAn, psdX, psdY) {
@@ -527,7 +527,7 @@ function copyApply() {
       if (ok) appLog('logShaper', `<span class="log-ok">\u2713</span> ${t('log_applied')} (fallback)`);
       else appLog('logShaper', `<span class="log-err">\u2717</span> Copy blocked - select text manually`);
     } catch (err) {
-      appLog('logShaper', `<span class="log-err">\u2717</span> Copy unavailable: ${err.message}`);
+      appLog('logShaper', `<span class="log-err">\u2717</span> Copy unavailable: ${_escLog(err.message)}`);
     }
   };
   if (!navigator.clipboard || !window.isSecureContext) {
@@ -577,7 +577,7 @@ async function doSaveResult() {
     appLog('logShaper', `<span class="log-ok">\u2713</span> ${t('log_nvs_ok')}`);
   } catch(e) {
     if (st) { st.textContent = '\u2717 '+t('result_save_fail')+e.message; st.className = 'save-msg save-err'; }
-    appLog('logShaper', `<span class="log-err">\u2717</span> ${t('log_nvs_fail')}${e.message}`);
+    appLog('logShaper', `<span class="log-err">\u2717</span> ${t('log_nvs_fail')}${_escLog(e.message)}`);
   }
   setTimeout(() => { if (st) st.style.display = 'none'; }, 4000);
 }

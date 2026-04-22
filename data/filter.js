@@ -161,19 +161,23 @@ function detectPeaks(psd, opts) {
     selected[i].secondPeak = z.secondPeak || null;
   }
 
-  // 5. 하모닉 체크 — 최소 오차 매칭 (여러 기본파 후보 중 가장 정확한 것 선택)
+  // 5. 하모닉 체크 - 최소 오차 매칭
+  // R117: selected 배열은 power-desc 순이므로 i < j 가 frequency 관계를 보장하지 않음.
+  //       각 peak i 에 대해 모든 j (j != i) 를 확인하고, selected[j].f < selected[i].f 인 경우만
+  //       j를 기본파 후보로 간주 (i가 하모닉). 원래 O(n²) 복잡도 유지됨 (n <= 8).
   for (var i = 0; i < selected.length; i++) {
     selected[i].isHarmonic = false;
     selected[i].harmonicOf = null;
     selected[i].harmonicOrder = 0;
     var bestErr = 1, bestJ = -1, bestR = 0;
-    for (var j = 0; j < i; j++) {
-      // R11.2: 하드코딩 15Hz → filterFreqMin (18.75Hz)으로 통일
-      // 저주파 프레임 공진(18~25Hz) 기본파의 하모닉이 누락되던 문제 수정
+    for (var j = 0; j < selected.length; j++) {
+      if (j === i) continue;
       if (selected[j].f < filterFreqMin) continue;
+      // R117: 기본파는 낮은 주파수여야 함 (selected[j].f < selected[i].f)
+      if (selected[j].f >= selected[i].f) continue;
       var ratio = selected[i].f / selected[j].f, rounded = Math.round(ratio);
       if (rounded >= 2 && rounded <= 6) {
-        // R44: 5% 허용오차 → 3%로 강화 (4.9× 처럼 경계값이 오분류되던 문제)
+        // R44: 5% 허용오차 -> 3%로 강화
         var err = Math.abs(ratio - rounded) / rounded;
         if (err < 0.03 && err < bestErr) { bestErr = err; bestJ = j; bestR = rounded; }
       }

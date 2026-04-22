@@ -44,6 +44,16 @@ async function checkAdxlStatus() {
 
 const APP_LOG_MAX = 100;
 
+// R119: HTML 이스케이프 헬퍼 (appLog에 에러 메시지 등 untrusted 내용 넣을 때 사용)
+function _escLog(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function appLog(id, html) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -134,7 +144,7 @@ async function startPrintMeasure() {
         appLog('logShaper', `<span class="log-err">\u2717</span> 측정 중에는 샘플레이트를 변경할 수 없습니다.`);
       } else {
         // R51.3: error 필드 없어도 fallback
-        appLog('logShaper', `<span class="log-err">\u2717</span> ${d.error || 'ESP32 returned error without detail'}`);
+        appLog('logShaper', `<span class="log-err">\u2717</span> ${_escLog(d.error) ||  'ESP32 returned error without detail'}`);
       }
       return;
     }
@@ -145,7 +155,7 @@ async function startPrintMeasure() {
     appLog('logShaper', `<span class="log-ok">✓</span> ${t('pm_collecting') || '듀얼 수집 중... 출력을 계속하세요'}`);
     startPrintPolling();
   } catch(e) {
-    appLog('logShaper', `<span class="log-err">✗</span> ${e.message}`);
+    appLog('logShaper', `<span class="log-err">✗</span> ${_escLog(e.message)}`);
   }
 }
 
@@ -178,7 +188,7 @@ async function stopPrintMeasure() {
 
   } catch(e) {
     // R9.1: stop 에러 시 사용자 컨텍스트 보존 - 'done' 유지하고 재시도 안내
-    appLog('logShaper', `<span class="log-err">\u2717</span> ${e.message}`);
+    appLog('logShaper', `<span class="log-err">\u2717</span> ${_escLog(e.message)}`);
     appLog('logShaper', `<span class="log-err">!</span> 결과를 가져오지 못했습니다. [완료]를 다시 누르거나 측정을 재시작하세요.`);
     measPhase = 'done';  // 'idle'로 되돌리지 않음 - 사용자가 재시도 가능
     setPrintMeasBtn('done');
@@ -275,7 +285,7 @@ function startPrintPolling() {
       if (typeof _pollFailCount === 'undefined') window._pollFailCount = 0;
       window._pollFailCount = (window._pollFailCount || 0) + 1;
       if (window._pollFailCount > 5) {
-        appLog('logShaper', `<span class="log-err">\u26A0</span> 상태 폴링 실패 반복 — 네트워크 확인: ${e.message}`);
+        appLog('logShaper', `<span class="log-err">\u26A0</span> 상태 폴링 실패 반복 — 네트워크 확인: ${_escLog(e.message)}`);
         stopPrintPolling();
       }
     }

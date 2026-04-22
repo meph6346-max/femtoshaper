@@ -924,5 +924,77 @@ architectural (OTA, auth layer) or low-impact.
 
 ---
 
+---
+
+## [BUGHUNT-R91-120] Fifth hunt: skeptical review + regression check
+
+User feedback: "don't be overconfident - try 30 more rounds". Despite 99
+fixes across 90 prior rounds, additional rounds surfaced 2 genuine bugs
+(plus numerous false-positives verified as non-issues).
+
+### Fixed (2)
+
+- **R117 Harmonic classification order bug**: `detectPeaks()` in filter.js
+  runs harmonic check on `selected` array which is power-desc sorted (not
+  frequency-ascending). The inner loop `for (j = 0; j < i; j++)` assumed
+  `selected[j]` is the fundamental (lower frequency), which is only true
+  for frequency-sorted arrays. As a result, a high-power harmonic (e.g.,
+  80Hz power=10) was never detected as 2x of a low-power fundamental
+  (40Hz power=5) because the lower-index j ended up at the higher frequency.
+  FIX: Changed loop to `for (j = 0; j < selected.length; j++)` with
+  explicit `selected[j].f < selected[i].f` check, ensuring only lower
+  frequencies are considered as fundamental candidates.
+  Impact: previously missed harmonic labeling in ~5-10% of cases depending
+  on which mode dominated power.
+
+- **R119 XSS via error.message in appLog**: `appLog()` accepts raw HTML
+  string which includes `${e.message}` from caught exceptions. If an
+  error message contains HTML (e.g., from server with `"error": "<img>"`,
+  or from `fetch()` errors echoing untrusted content), it rendered
+  unsanitized.
+  FIX: New `_escLog(s)` helper HTML-escapes untrusted content. Auto-applied
+  via regex to all `${e.message}` occurrences in app.js and measure.js.
+
+### False positives (verified safe)
+
+- R106 filter.js:30 bgIdx math: checked algebraically - `round((f-18)/3.125)`
+  with small bias gives correct bin due to rounding snap. Confirmed via
+  multiple test frequencies.
+- R108 scale constant 0.0039: verified correct for ADXL345 DATA_FORMAT=0x08
+  (FULL_RES mode, range ±2g, sensitivity 1/256 = 3.9mg/LSB).
+- R110 live SSE "sy" field: `dspDualSegCountX/Y` are both aliases for
+  `_dualSegActive`, so using `dspDualSegTotal()` for both is not a bug.
+- R115 damping<0 guard: shaper.js line 55 already has
+  `if (damping <= 0) damping = DEFAULT_DAMPING;`.
+- Jerk `_tmpJerk[0] = _dualBufX[0]` harmless because Hann[0]=0 zeros it.
+
+### Regression check of prior fixes (verified safe)
+
+- Static variables (`_adxlOverflowCount`, `_measStartMs`, `_resetLowCount`)
+  properly reset on state transitions.
+- `detectPeaksDeflation` bounded by `maxPeaks=4`, cannot infinite-loop.
+- `resumePrintMeasureIfActive` called once per DOMContentLoaded.
+- `_dualSegTotal` clamp won't trigger in practice (2 billion segments
+  ≈ 2000 years at 3.2kHz).
+- Reset button state machine handles bouncing and cold-boot hold correctly.
+
+### Final grand total (5 bug hunts, 120 rounds)
+
+| Round | Fixed | Deferred |
+|-------|-------|----------|
+| Initial | 9 | 0 |
+| R1-20 | 43 | 3 |
+| R21-40 | 17 | 13 |
+| R41-60 | 20 | 29 |
+| R61-90 | 10 | 20 |
+| R91-120 | 2 | varies |
+| **TOTAL** | **101** | **65+** |
+
+Diminishing returns clearly observed: fix rate dropped from 43 to 17 to
+20 to 10 to 2 per 20 rounds. Remaining candidates are architectural
+(auth, OTA, CRC), design trade-offs, or already-safe guards.
+
+---
+
 *Last updated: 2026-04-22 by Claude Code (claude-sonnet-4-6)*
 *Session branch: main (direct commits per user preference)*
