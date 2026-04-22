@@ -539,7 +539,22 @@ void loadConfig() {
   cfg.buildY   = constrain(cfg.buildY, 30, 1000);
   cfg.accel    = constrain(cfg.accel, 100, 50000);
   cfg.feedrate = constrain(cfg.feedrate, 10, 1000);
+  // ADXL345 only supports the discrete rates {400, 800, 1600, 3200}. Snap the
+  // stored cfg value to the nearest supported rate so the DSP freq axis (which
+  // uses cfg.sampleRate) stays aligned with the actual hardware rate. Without
+  // this, a user POSTing sampleRate=1000 would get a 1600Hz ADXL + a DSP that
+  // believed the rate was 1000, mis-locating every peak by ~37%.
   cfg.sampleRate = constrain(cfg.sampleRate, 400, 3200);
+  {
+    const int allowed[] = {400, 800, 1600, 3200};
+    int best = allowed[0];
+    int bestDist = abs(cfg.sampleRate - best);
+    for (size_t i = 1; i < sizeof(allowed)/sizeof(allowed[0]); i++) {
+      int d = abs(cfg.sampleRate - allowed[i]);
+      if (d < bestDist) { bestDist = d; best = allowed[i]; }
+    }
+    cfg.sampleRate = best;
+  }
   cfg.minSegs  = constrain(cfg.minSegs, 10, 500);
 
   // R5.1/R18.24: if calibration vectors are still the identity default,
@@ -714,6 +729,18 @@ void handlePostConfig() {
   //   - dspBgEnergy (sweep threshold derives from background energy)
   if (doc["sampleRate"].is<int>()) {
     int newSR = constrain(doc["sampleRate"].as<int>(), 400, 3200);
+    // Snap to nearest ADXL-supported rate (same reasoning as loadConfig; without
+    // this the DSP would mis-locate peaks whenever cfg != hardware rate).
+    {
+      const int allowed[] = {400, 800, 1600, 3200};
+      int best = allowed[0];
+      int bestDist = abs(newSR - best);
+      for (size_t i = 1; i < sizeof(allowed)/sizeof(allowed[0]); i++) {
+        int d = abs(newSR - allowed[i]);
+        if (d < bestDist) { bestDist = d; best = allowed[i]; }
+      }
+      newSR = best;
+    }
     if (newSR != cfg.sampleRate) {
       // New sample rate: invalidate all rate-dependent buffers
       measPsdValid = false;
@@ -1215,7 +1242,16 @@ void handleMeasure() {
     Serial.println("[MEAS] print measurement started (dual-axis DSP)");
   }
   else if (strcmp(cmd,"print_stop")==0) {
-    // v1.0: finalise print measurement and snapshot the PSDs
+    // v1.0: finalise print measurement and snapshot the PSDs.
+    // Guard: without an active print, dspDualPsd* holds stale/zero data and
+    // we'd happily persist it to NVS with measPsdValid=true. Reject if
+    // not currently in MEAS_PRINT so the snapshot reflects real samples.
+    if (measState != MEAS_PRINT) {
+      res["ok"] = false;
+      res["error"] = "not_in_print";
+      res["state"] = (measState == MEAS_DONE) ? "done" : "idle";
+      sendJson(res); return;
+    }
     dspUpdateDual();
     // Take a snapshot of the current PSDs so future reads are stable
     memset(measPsdX, 0, sizeof(measPsdX));
@@ -1347,7 +1383,15 @@ void handleLiveStream() {
   liveSSEClient.setTimeout(3);  // R27.1: 3s send timeout so a stuck client cannot block the loop
   liveMode = true;
   dspReset();
-  
+  // Dual-axis accumulators drive the live SSE payload (bx[]/by[] come from
+  // dspDualPsdX/Y). Without resetting them here, the first frames of a new
+  // live session carry stale data from a prior print or live session - most
+  // visibly when reconnecting after a MEAS_DONE finish. Only reset when not
+  // in an active print so we don't wipe an in-progress measurement.
+  if (measState != MEAS_PRINT) {
+    dspResetDual();
+  }
+
   liveSegReset = 0;
   Serial.println("[LIVE] SSE stream started");
 }
@@ -1590,8 +1634,15 @@ void setup() {
     if (allArg.length() > 4) { server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad_arg\"}"); return; }
     bool all = (allArg == "1");
     if (all) {
-      const char* ns[] = {"femto", "femto_bg", "femto_mpsd", "femto_result"};
-      for (int i = 0; i < 4; i++) {
+      // Must match every namespace written anywhere in this firmware:
+      //   "femto"       - cfg (loadConfig / saveConfig)
+      //   "femto_bg"    - background PSD (saveBgPsdToNVS)
+      //   "femto_mpsd"  - measured PSD snapshot (saveMeasPsdToNVS)
+      //   "femto_res"   - last shaper result (handleSaveResult) *not "femto_result"*
+      //   "femto_diag"  - diagnosis report (handleSaveDiag)
+      const char* ns[] = {"femto", "femto_bg", "femto_mpsd", "femto_res", "femto_diag"};
+      const size_t nsCount = sizeof(ns) / sizeof(ns[0]);
+      for (size_t i = 0; i < nsCount; i++) {
         if (prefs.begin(ns[i], false)) { prefs.clear(); prefs.end(); }
       }
       Serial.println("[RESET] Factory reset - all NVS cleared");
@@ -1743,7 +1794,10 @@ void loop() {
         dspDualNewSeg = false;
         if (liveSSEClient.connected()) {
           dspUpdateDual();
-          char buf[2048];  // Room for the full PSD payload plus metadata.
+          // 4KB so we can safely serialise 2 arrays of up to ~465 bins (the
+          // 400Hz sampleRate case). At 2KB the loop guard would silently
+          // truncate mid-array and the client's JSON.parse would fail.
+          char buf[4096];  // Room for the full PSD payload plus metadata.
           // fr/bm expose the bin geometry so clients can label axes correctly
           // at any cfg.sampleRate (live chart used to hard-code 3.125Hz/bin).
           int len = snprintf(buf, sizeof(buf),
@@ -1801,7 +1855,10 @@ void loop() {
           liveSegReset = segNow;
           dspUpdateDual();
           if (liveSSEClient.connected()) {
-            char buf[2048];
+            // 4KB so we can safely serialise 2 arrays of up to ~465 bins (the
+          // 400Hz sampleRate case). At 2KB the loop guard would silently
+          // truncate mid-array and the client's JSON.parse would fail.
+          char buf[4096];
             // fr/bm added so clients can derive Hz-per-bin at any sampleRate.
             int len = snprintf(buf, sizeof(buf),
               "data: {\"m\":\"live\",\"sx\":%d,\"sy\":%d,\"fr\":%.4f,\"bm\":%d,\"bx\":[",

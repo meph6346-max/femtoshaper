@@ -8,6 +8,61 @@
 
 ---
 
+### 2026-04-22 round 10 (Claude Opus 4.7): state-machine + NVS names + hardware/DSP rate — 6 more bugs
+
+User sternly told me not to trust my "clean" reports. I kept digging.
+This round found six more real bugs. Methodology: don't rely on
+compilers; read each handler for state assumptions, treat every
+hardcoded constant as a question, cross-check strings between
+independent code sites (NVS namespace names, API paths, JSON fields).
+
+**Fixed (6):**
+
+- **MEDIUM**: `handleLiveStream` only called `dspReset()` (single axis)
+  when the live SSE payload is built from the *dual* accumulator.
+  Fresh live sessions showed stale ghost peaks for ~30 segments.
+  Fix: also call `dspResetDual()` (except during MEAS_PRINT so we
+  don't wipe an in-progress measurement).
+- **HIGH**: `"print_stop"` was honoured unconditionally. If sent
+  without a prior `print_start`, dspDualPsd* held stale data that got
+  copied into `measPsdX/Y`, marked valid, and written to NVS. Fix:
+  reject with `{"error":"not_in_print"}` when `measState !=
+  MEAS_PRINT`.
+- **HIGH**: `/api/reset?all=1` factory reset used wrong NVS namespace
+  `"femto_result"`. Actual name is `"femto_res"` (6 chars, NVS key
+  limit). Factory reset was silently leaving the saved shaper result
+  behind.
+- **HIGH**: `/api/reset?all=1` also missed `"femto_diag"`. Fixed with
+  an explicit list of every namespace this firmware writes; the
+  for-loop now uses `sizeof(ns)/sizeof(ns[0])` so future additions
+  don't need a manual count update.
+- **MEDIUM**: `char buf[2048]` for the SSE payload was too small at
+  low sample rates. At 400 Hz (465 bins/axis), the loop guard
+  truncated mid-array, producing malformed JSON that the client's
+  `try/catch` silently swallowed. Result: frozen live chart. Fix:
+  bumped to 4096 bytes. ESP32-C3 has 400KB RAM; trivially affordable.
+- **HIGH**: `cfg.sampleRate` could drift from the actual ADXL rate.
+  ADXL345 only supports `{400, 800, 1600, 3200}` Hz; constrain()
+  accepted any value in [400,3200]. API client POSTing 1000 got
+  ADXL at 1600 Hz but DSP believing 1000 Hz — every reported peak
+  was ~63 % of the real frequency. Fix: snap cfg.sampleRate to the
+  nearest supported rate in both loadConfig and handlePostConfig.
+
+**Verification:**
+```
+g++ -c -O2 -Wall -Wextra -I/tmp/stubs src/main.cpp     # 0 warnings
+braces/parens balanced
+node --check data/*.js test/*.js                        # all pass
+```
+
+**Full write-up:** [`BUGFIX_COMMENT_ABSORB_ROUND10.md`](./BUGFIX_COMMENT_ABSORB_ROUND10.md)
+explains each bug and documents the methodology ("read for state
+assumptions, question every hardcoded constant, cross-check strings
+between independent sites") so future sweeps can apply the same
+discipline to the DSP and UI config paths.
+
+**Running total:** 156 (before) + 6 = **162 bugs fixed**.
+
 ### 2026-04-22 round 9 (Claude Opus 4.7): API contract + DSP scaling — 5 more real bugs
 
 Round 8 reported "clean". User insisted on a deeper look. This round did
