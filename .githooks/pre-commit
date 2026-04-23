@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+python scripts/check_encoding_safety.py
+
+for file in data/*.js; do
+  node --check "$file"
+done
