@@ -20,6 +20,21 @@ let psdPeakXGlobal = 0, psdPeakYGlobal = 0;  // v0.9: ??(PSD ? ? )
 
 const TAB_IDS = ['shaper', 'diag', 'live', 'settings'];
 
+function cacheBackgroundPsd(payload) {
+  if (!payload) return;
+  if (Array.isArray(payload)) {
+    _bgPsdCache = { bins: payload };
+    return;
+  }
+  if (Array.isArray(payload.bins) && payload.bins.length > 0) {
+    _bgPsdCache = {
+      bins: payload.bins,
+      freqRes: payload.freqRes || payload.bgFreqRes,
+      binMin: payload.binMin ?? payload.bgBinMin
+    };
+  }
+}
+
 function switchTab(id) {
   document.querySelectorAll('.tb .tab').forEach((tab, i) =>
     tab.classList.toggle('active', TAB_IDS[i] === id));
@@ -101,8 +116,12 @@ async function fetchAndRenderPsdDual(measureMetrics) {
     realPsdX = d.binsX.map(b => ({ f: b.f, v: b.v, var: b.var || 0 }));
     realPsdY = d.binsY.map(b => ({ f: b.f, v: b.v, var: b.var || 0 }));
 
-    const bgPsd = d.bgPsd || _bgPsdCache || null;
-    if (d.bgPsd) _bgPsdCache = d.bgPsd;
+    const bgPsd = d.bgPsd ? {
+      bins: d.bgPsd,
+      freqRes: d.bgFreqRes || d.freqRes,
+      binMin: Number.isFinite(d.bgBinMin) ? d.bgBinMin : d.binMin
+    } : (_bgPsdCache || null);
+    if (d.bgPsd) cacheBackgroundPsd(bgPsd);
 
     // Phase 2 ( /opt-in): H(f) = X(f) / F(f)
     // (test/sim_accuracy.js) : 1/omega^2
@@ -391,33 +410,33 @@ function updateShaperUI(peakX, peakY, xAn, yAn, psdX, psdY) {
   }
 
   const confEl = document.getElementById('vConf');
+  const confNoteEl = document.getElementById('vConfNote');
   const warnEl = document.getElementById('lowConfWarn');
   const vd = lastShaperResult?.verdict;
-  if (confEl && vd) {
-    const vl = typeof verdictLabel === 'function' ? verdictLabel(vd.verdict) : { icon: '', text: '?', color: '#888' };
-    const pct = (vd.overallScore * 100).toFixed(0);
-    confEl.textContent = `${vl.icon} ${vl.text} (${pct}%)`;
-    confEl.style.color = vl.color;
-    confEl.className = vd.verdict === 'apply' ? 'c-suc' : vd.verdict === 'review' ? 'c-wrn' : 'c-err';
-
+  if (confEl && xAn.confidence !== undefined) {
+    const c = Math.min(xAn.confidence, yAn.confidence ?? xAn.confidence);
+    confEl.textContent = `${(c * 100).toFixed(0)}%`;
+    confEl.className = c >= 0.8 ? 'c-suc' : c >= 0.5 ? 'c-wrn' : 'c-err';
+    if (confNoteEl) {
+      confNoteEl.textContent = t('conf_note');
+    }
     if (warnEl) {
-      if (vd.verdict === 'retry') {
+      if (vd?.verdict === 'retry') {
         warnEl.style.display = 'block';
-        warnEl.textContent = 'Retry: ' + (vd.reason_ko || vd.reason_en || 'Needs a new measurement');
+        warnEl.textContent = 'Retry: ' + (vd.reason_en || 'Needs a new measurement');
         warnEl.className = 'chip chip-err';
-      } else if (vd.verdict === 'review') {
+      } else if (vd?.verdict === 'review') {
         warnEl.style.display = 'block';
-        warnEl.textContent = 'Review: ' + (vd.reason_ko || vd.reason_en || 'Manual review recommended');
+        warnEl.textContent = 'Review: ' + (vd.reason_en || 'Manual review recommended');
+        warnEl.className = 'chip chip-wrn';
+      } else if (c < 0.5) {
+        warnEl.style.display = 'block';
+        warnEl.textContent = t('warn_low_conf_detail');
         warnEl.className = 'chip chip-wrn';
       } else {
         warnEl.style.display = 'none';
       }
     }
-  } else if (confEl && xAn.confidence !== undefined) {
-    const c = Math.min(xAn.confidence, yAn.confidence ?? xAn.confidence);
-    confEl.textContent = `${(c * 100).toFixed(0)}%`;
-    confEl.className = c >= 0.8 ? 'c-suc' : c >= 0.5 ? 'c-wrn' : 'c-err';
-    if (warnEl) warnEl.style.display = 'none';
   }
 
   const pd = psdX || xPsdData;
@@ -426,24 +445,23 @@ function updateShaperUI(peakX, peakY, xAn, yAn, psdX, psdY) {
   const practEl = document.getElementById('practicalInfo');
   const prac = xAn.practical;
   if (practEl && prac && prac.userAccel > 0 && prac.rec) {
-    const ko = typeof curLang !== 'undefined' && curLang === 'ko';
     const r = prac.rec;
     let html = '';
 
     if (r.status === 'retry') {
-      html += `<span style="color:#BF616A">!</span> <b>${ko ? '재측정 권장' : 'Re-measurement recommended'}</b><br>`;
-      html += `${ko ? 'maxAccel이 너무 낮습니다. 센서 부착 상태를 확인하고 다시 측정하세요.' : 'maxAccel too low. Check sensor mounting and re-measure.'}`;
+      html += `<span style="color:#BF616A">!</span> <b>Re-measurement recommended</b><br>`;
+      html += `maxAccel too low. Check sensor mounting and re-measure.`;
     } else {
-      html += `<b>${ko ? '권장 설정' : 'Recommended Settings'}</b><br>`;
-      html += `${ko ? '가속도' : 'Accel'}: <b>${r.accelMin.toLocaleString()} ~ ${r.accelMax.toLocaleString()}</b> mm/s²`;
-      html += ` / ${ko ? '속도' : 'Speed'}: <b>${r.speedMin} ~ ${r.speedMax}</b> mm/s<br>`;
+      html += `<b>Recommended Settings</b><br>`;
+      html += `Accel: <b>${r.accelMin.toLocaleString()} ~ ${r.accelMax.toLocaleString()}</b> mm/s²`;
+      html += ` / Speed: <b>${r.speedMin} ~ ${r.speedMax}</b> mm/s<br>`;
 
       if (r.status === 'headroom') {
-        html += `<span style="color:#A3BE8C">OK</span> ${ko ? '현재' : 'Current'} ${prac.userAccel.toLocaleString()}mm/s² / ${prac.userFeed}mm/s ${ko ? '여유 있음, 가속도를 올릴 수 있습니다.' : 'Headroom available, accel can be increased.'}`;
+        html += `<span style="color:#A3BE8C">OK</span> Current ${prac.userAccel.toLocaleString()}mm/s² / ${prac.userFeed}mm/s Headroom available, accel can be increased.`;
       } else if (r.status === 'over') {
-        html += `<span style="color:#EBCB8B">W</span> ${ko ? '현재 가속도' : 'Current accel'} ${prac.userAccel.toLocaleString()} > ${ko ? '권장 최대' : 'rec max'} ${r.accelMax.toLocaleString()} <b>${ko ? '가속도를 낮추세요' : 'Reduce accel'}</b>`;
+        html += `<span style="color:#EBCB8B">W</span> Current accel ${prac.userAccel.toLocaleString()} > rec max ${r.accelMax.toLocaleString()} <b>Reduce accel</b>`;
       } else {
-        html += `<span style="color:#88C0D0">OK</span> ${ko ? '현재' : 'Current'} ${prac.userAccel.toLocaleString()}mm/s² / ${prac.userFeed}mm/s ${ko ? '정상 범위지만 여유는 적습니다.' : 'OK but with limited margin.'}`;
+        html += `<span style="color:#88C0D0">OK</span> Current ${prac.userAccel.toLocaleString()}mm/s² / ${prac.userFeed}mm/s OK but with limited margin.`;
       }
     }
 
@@ -627,7 +645,14 @@ function loadResultFromESP() {
             realPsdY = d.binsY.map((v, i) => ({f: (i + binMin) * (d.freqRes || 3.125), v: typeof v === 'number' ? v : v.v || 0}));
           }
         }
-        if (d.bgPsd && d.bgPsd.length > 0) { liveBgPsd = d.bgPsd; _bgPsdCache = d.bgPsd; }
+        if (d.bgPsd && d.bgPsd.length > 0) {
+          liveBgPsd = {
+            bins: d.bgPsd,
+            freqRes: d.bgFreqRes || d.freqRes,
+            binMin: Number.isFinite(d.bgBinMin) ? d.bgBinMin : d.binMin
+          };
+          cacheBackgroundPsd(liveBgPsd);
+        }
       } catch(e) {
         // P-07 (Codex follow-up): /api/psd fallback only returned Y-axis data,
         // leaving realPsdX as demo data. Fill X=Y as single-axis fallback and warn user.
@@ -643,7 +668,14 @@ function loadResultFromESP() {
               appLog('logShaper', `<span class="log-ok">i</span> Single-axis PSD fallback (X=Y)`);
             }
           }
-          if (yD.bgPsd && yD.bgPsd.length > 0) { liveBgPsd = yD.bgPsd; _bgPsdCache = yD.bgPsd; }
+          if (yD.bgPsd && yD.bgPsd.length > 0) {
+            liveBgPsd = {
+              bins: yD.bgPsd,
+              freqRes: yD.bgFreqRes || yD.freqRes,
+              binMin: Number.isFinite(yD.bgBinMin) ? yD.bgBinMin : yD.binMin
+            };
+            cacheBackgroundPsd(liveBgPsd);
+          }
         } catch(e2) {
           if (typeof appLog === 'function') {
             appLog('logShaper', `<span class="log-err">X</span> PSD restore failed: ${_escLog(e2.message)}`);
@@ -698,13 +730,12 @@ function initApp() {
   // Load the background PSD used for chart overlays and validation.
   function loadBgPsd(retryCount) {
     fetch('/api/noise').then(r=>r.json()).then(d=>{
-      if (d.valid && d.bins && d.bins.length > 0) {
-        _bgPsdCache = d.bins.map(b=>b.v);
+      if(d.valid && d.bins && d.bins.length>0){
+        cacheBackgroundPsd({ bins: d.bins });
       } else if (retryCount < 3) {
         // Boot-noise capture may still be in progress. Retry up to 3 times
-        // with a 3 s gap. This branch was previously an absorbed-comment
-        // bug - the setTimeout call sat inside a `//` comment and never
-        // executed, so an invalid response never retried.
+        // with a 3 s gap. This branch previously failed to retry on
+        // invalid-but-successful payloads.
         setTimeout(() => loadBgPsd(retryCount + 1), 3000);
       }
     }).catch(()=>{

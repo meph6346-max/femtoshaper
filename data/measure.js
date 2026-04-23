@@ -120,7 +120,7 @@ async function startPrintMeasure() {
     const cfg = await cfgRes.json();
     if (!cfg.useCalWeights) {
       // R55.1: calibration_required
-      appLog('logShaper', `<span class="log-err">\u2717</span> ${t('pm_cal_required') || '축 캘리브레이션이 필요합니다.'} → <a href="#" onclick="switchTab('settings');return false;">설정 → 캘리브레이션</a>`);
+      appLog('logShaper', `<span class="log-err">\u2717</span> ${t('pm_cal_required')} → <a href="#" onclick="switchTab('settings');return false;">Settings → Calibration</a>`);
       return;
     }
   } catch(e) {
@@ -128,7 +128,7 @@ async function startPrintMeasure() {
     return;
   }
 
-  appLog('logShaper', `<span class="log-ok">▶</span> ${t('pm_start') || '측정 시작 — 출력을 시작하세요'}`);
+  appLog('logShaper', `<span class="log-ok">▶</span> ${t('pm_start')}`);
 
   try {
     const res = await fetch('/api/measure', {
@@ -139,9 +139,9 @@ async function startPrintMeasure() {
     const d = await res.json();
     if (!d.ok) {
       if (d.error === 'calibration_required') {
-        appLog('logShaper', `<span class="log-err">\u2717</span> ${t('pm_cal_required') || '캘리브레이션 필요'}`);
+        appLog('logShaper', `<span class="log-err">\u2717</span> ${t('pm_cal_required')}`);
       } else if (d.error === 'cannot_change_sample_rate_during_measurement') {
-        appLog('logShaper', `<span class="log-err">\u2717</span> 측정 중에는 샘플레이트를 변경할 수 없습니다.`);
+        appLog('logShaper', `<span class="log-err">\u2717</span> Cannot change sample rate during measurement.`);
       } else {
         // R51.3: error fallback
         appLog('logShaper', `<span class="log-err">\u2717</span> ${_escLog(d.error) ||  'ESP32 returned error without detail'}`);
@@ -152,7 +152,7 @@ async function startPrintMeasure() {
     measPhase = 'print';
     ledBlink();
     setPrintMeasBtn('running');
-    appLog('logShaper', `<span class="log-ok">✓</span> ${t('pm_collecting') || '듀얼 수집 중... 출력을 계속하세요'}`);
+    appLog('logShaper', `<span class="log-ok">✓</span> ${t('pm_collecting')}`);
     startPrintPolling();
   } catch(e) {
     appLog('logShaper', `<span class="log-err">✗</span> ${_escLog(e.message)}`);
@@ -161,7 +161,7 @@ async function startPrintMeasure() {
 
 async function stopPrintMeasure() {
   stopPrintPolling();
-  appLog('logShaper', `<span class="log-ok">></span> ${t('pm_analyzing') || '측정 완료 — 분석 중...'}`);
+  appLog('logShaper', `<span class="log-ok">></span> ${t('pm_analyzing')}`);
 
   try {
     const res = await fetch('/api/measure', {
@@ -189,7 +189,7 @@ async function stopPrintMeasure() {
   } catch(e) {
     // R9.1: stop - 'done'
     appLog('logShaper', `<span class="log-err">\u2717</span> ${_escLog(e.message)}`);
-    appLog('logShaper', `<span class="log-err">!</span> 결과를 가져오지 못했습니다. [완료]를 다시 누르거나 측정을 재시작하세요.`);
+    appLog('logShaper', `<span class="log-err">!</span> Failed to retrieve results. Press [Done] again or restart measurement.`);
     measPhase = 'done';  // 'idle' -
     setPrintMeasBtn('done');
     ledOn();
@@ -217,16 +217,28 @@ function startPrintPolling() {
       const corr = d.correlation || 0;
       const gr = d.gateRatio || 0;
       const cvMax = Math.max(cvX, cvY);
+      const reachedMinimumSegs = !!d.autoReady || (segTotal > 0 && segX >= segTotal);
 
       //
-      const pct = cvMax >= CONVERGENCE_NOT_READY ? Math.min(20, Math.round(segX / 5))
+      const pct = reachedMinimumSegs ? 100
+                : cvMax >= CONVERGENCE_NOT_READY ? Math.min(20, Math.round(segX / 5))
                 : cvMax > 3 ? 30 : cvMax > 1 ? 60 : 90;
       const progBar = document.getElementById('pmProgressBar');
       const progEl = document.getElementById('pmProgress');
       const segEl = document.getElementById('pmSegs');
+      const noteEl = document.getElementById('pmProgressNote');
       if (progBar) progBar.style.width = `${pct}%`;
       if (progEl) progEl.textContent = `${pct}%`;
       if (segEl) segEl.textContent = `${segX} / ${segTotal}`;
+      if (noteEl) {
+        if (reachedMinimumSegs) {
+          noteEl.style.display = 'block';
+          noteEl.textContent = t('pm_min_segs_note');
+        } else {
+          noteEl.style.display = 'none';
+          noteEl.textContent = '';
+        }
+      }
 
       // 5
       if (Date.now() - lastLog > 5000) {
@@ -244,19 +256,19 @@ function startPrintPolling() {
         const kinP = typeof getKinProfile === 'function' ? getKinProfile(kin) : null;
 
         if (phase === 'init') {
-          appLog('logShaper', `<span class="log-ok">⏳</span> 데이터 수집 대기 중... 프린터가 움직이는지 확인하세요`);
+          appLog('logShaper', `<span class="log-ok">⏳</span> Waiting for data... check that the printer is moving`);
           if (phaseChanged && kinP) {
             appLog('logShaper', `<span class="log-ok">ℹ</span> ${kinP.guide_ko || kinP.guide_en}`);
           }
         } else if (phase === 'collecting') {
-          appLog('logShaper', `<span class="log-ok">📊</span> 수집 중 — ${segX}/${segTotal} segs (gate:${(gr*100).toFixed(0)}% corr:${(corr*100).toFixed(0)}%)`);
+          appLog('logShaper', `<span class="log-ok">📊</span> Collecting — ${segX}/${segTotal} segs (gate:${(gr*100).toFixed(0)}% corr:${(corr*100).toFixed(0)}%)`);
         } else if (phase === 'converging') {
           //
           const xConv = cvX < (kinP?.axes?.x?.convergenceHz || 1.0);
           const yConv = cvY < (kinP?.axes?.y?.convergenceHz || 1.5);
           const xIcon = xConv ? '✅' : '🔍';
           const yIcon = yConv ? '✅' : '🔍';
-          appLog('logShaper', `<span class="log-ok">🔍</span> 수렴 중 — X${xIcon}±${cvX.toFixed(1)}Hz  Y${yIcon}±${cvY.toFixed(1)}Hz (gate:${(gr*100).toFixed(0)}%)`);
+          appLog('logShaper', `<span class="log-ok">🔍</span> Converging — X${xIcon}±${cvX.toFixed(1)}Hz  Y${yIcon}±${cvY.toFixed(1)}Hz (gate:${(gr*100).toFixed(0)}%)`);
 
           // ( )
           if (phaseChanged && kinP) {
@@ -266,9 +278,9 @@ function startPrintPolling() {
             }
           }
         } else {
-          appLog('logShaper', `<span class="log-ok">🟢</span> 수렴 완료 — X±${cvX.toFixed(1)}Hz Y±${cvY.toFixed(1)}Hz`);
+          appLog('logShaper', `<span class="log-ok">🟢</span> Converged — X±${cvX.toFixed(1)}Hz Y±${cvY.toFixed(1)}Hz`);
           if (phaseChanged) {
-            appLog('logShaper', `<span class="log-ok">ℹ</span> [완료]를 눌러 결과를 확인하세요. 계속 수집하면 더 정밀해집니다.`);
+            appLog('logShaper', `<span class="log-ok">ℹ</span> Press [Done] to view results. Continued collection improves precision.`);
           }
         }
       }
@@ -276,7 +288,7 @@ function startPrintPolling() {
       //
       if (d.autoReady && !autoNotified) {
         autoNotified = true;
-        appLog('logShaper', `<span class="log-ok">✅</span> 측정 품질 충분! [완료] 버튼을 눌러 결과를 확인하세요.`);
+        appLog('logShaper', `<span class="log-ok">✅</span> Measurement quality sufficient! Press [Done] to view results.`);
         const doneBtn = document.getElementById('btnPmDone');
         if (doneBtn) doneBtn.classList.add('btn-pulse');
       }
@@ -287,7 +299,7 @@ function startPrintPolling() {
     } catch(e) {
       window._pollFailCount = (window._pollFailCount || 0) + 1;
       if (window._pollFailCount > 5) {
-        appLog('logShaper', `<span class="log-err">\u26A0</span> 상태 폴링 실패 반복 — 네트워크 확인: ${_escLog(e.message)}`);
+        appLog('logShaper', `<span class="log-err">\u26A0</span> Status polling repeatedly failed — check network: ${_escLog(e.message)}`);
         stopPrintPolling();
       }
     }
@@ -308,7 +320,7 @@ async function resumePrintMeasureIfActive() {
     if (d.state === 'print' || d.measState === 'print') {
       if (typeof setPrintMeasBtn === 'function') setPrintMeasBtn('running');
       startPrintPolling();
-      appLog('logShaper', `<span class="log-ok">\u21BB</span> 측정 진행 중 — 폴링 재개 (seg: ${d.segCountX || 0})`);
+      appLog('logShaper', `<span class="log-ok">\u21BB</span> Measurement in progress — resuming polling (seg: ${d.segCountX || 0})`);
     } else if (d.state === 'done' || d.measState === 'done') {
       if (typeof setPrintMeasBtn === 'function') setPrintMeasBtn('done');
     }

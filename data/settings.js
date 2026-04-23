@@ -42,7 +42,7 @@ function saveSettings(silent) {
     staPass:    document.getElementById('s_staPass')?.value || '',
     hostname:   (document.getElementById('s_hostname')?.value || 'femto').toLowerCase().replace(/[^a-z0-9\-]/g,'') || 'femto',
     powerHz:    parseInt(document.getElementById('s_powerHz')?.value || '60'),
-    liveSegs:   parseInt(document.getElementById('s_liveSegs')?.value || '2'),
+    liveSegs:   parseInt(document.getElementById('s_liveSegs')?.value || '1'),
   };
 
   // ESP32 NVS
@@ -417,6 +417,33 @@ function switchSettingsTab(tab) {
   if (tab === 'system') updateSysInfo();
 }
 
+function focusAxisCalibrationSection(announce) {
+  const wizard = document.getElementById('calWizard');
+  const status = document.getElementById('calStatus');
+  if (announce && status) {
+    const msg = (typeof curLang !== 'undefined' && curLang === 'ko')
+      ? t('cal_onboard_confirm')
+      : 'Calibration is starting now. Follow the instructions below.';
+    status.innerHTML = '??' + msg;
+  }
+  if (wizard && typeof wizard.scrollIntoView === 'function') {
+    wizard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function beginOnboardingCalibration() {
+  const msg = (typeof curLang !== 'undefined' && curLang === 'ko')
+    ? t('cal_onboard_confirm')
+    : 'Calibration will start now and move you to Settings. Continue?';
+  if (!confirm(msg)) return;
+  switchTab('settings');
+  switchSettingsTab('basic');
+  setTimeout(() => {
+    focusAxisCalibrationSection(true);
+    startAxisCalibration();
+  }, 180);
+}
+
 function syncDebugUI() {
   const el = (id) => document.getElementById(id);
   if (el('d_snrGate'))   el('d_snrGate').value   = debugSnrGate;
@@ -594,9 +621,9 @@ async function startAxisCalibration() {
 
   try {
     // Phase 1:
-    setS('📐 <b>1/'+TOTAL_PHASES+'</b> — 프린터를 정지 상태로 유지하세요 (모터OFF, 팬OFF)');
+    setS('📐 <b>1/'+TOTAL_PHASES+'</b> — Keep the printer still (motors OFF, fans OFF)');
     setB(0);
-    log('<span class="log-ok">▶</span> Phase 1: 중력 측정 시작');
+    log('<span class="log-ok">▶</span> Phase 1: gravity measurement start');
 
     var gravSamples = [];
     var GRAV_COUNT = Math.max(50, MIN_SEGS);
@@ -614,13 +641,13 @@ async function startAxisCalibration() {
       await new Promise(function(r){setTimeout(r,POLL_MS)});
       setB((i/GRAV_COUNT*15).toFixed(0));
     }
-    if (gravSamples.length < 20) throw new Error('중력 감지 실패 — 센서 연결 확인');
+    if (gravSamples.length < 20) throw new Error('Gravity detection failed — check sensor connection');
 
     var gMean = [0,0,0];
     for (var i=0; i<gravSamples.length; i++) { gMean[0]+=gravSamples[i][0]; gMean[1]+=gravSamples[i][1]; gMean[2]+=gravSamples[i][2]; }
     gMean[0]/=gravSamples.length; gMean[1]/=gravSamples.length; gMean[2]/=gravSamples.length;
     var gMag = vecLen(gMean);
-    if (gMag < 100 || gMag > 500) throw new Error('중력 비정상: |g|=' + gMag.toFixed(0));
+    if (gMag < 100 || gMag > 500) throw new Error('Gravity out of range: |g|=' + gMag.toFixed(0));
 
     // ( )
     var bgVar = 0;
@@ -631,12 +658,12 @@ async function startAxisCalibration() {
     bgVar /= gravSamples.length;
     var threshold = bgVar * GATE;
 
-    log('<span class="log-ok">✓</span> 중력 OK (' + (gMag/256).toFixed(2) + 'g) 배경 에너지: ' + bgVar.toFixed(1));
+    log('<span class="log-ok">✓</span> Gravity OK (' + (gMag/256).toFixed(2) + 'g) background energy: ' + bgVar.toFixed(1));
     setB(15);
 
     // Phase 2: X
-    setS('↔ <b>2/'+TOTAL_PHASES+'</b> — 컨트롤러에서 <b>X축</b>을 왕복 이동하세요');
-    log('<span class="log-ok">▶</span> Phase 2: X축 — 움직임 대기 중...');
+    setS('↔ <b>2/'+TOTAL_PHASES+'</b> — Move <b>X-axis</b> back and forth from the controller');
+    log('<span class="log-ok">▶</span> Phase 2: X-axis — waiting for motion...');
 
     var xSamples = [];
     var xActive = 0;
@@ -654,9 +681,9 @@ async function startAxisCalibration() {
           if (xWaiting) {
             if (e > threshold) {
               xWaiting = false;
-              log('<span class="log-ok">✓</span> X축 움직임 감지! 수집 시작');
+              log('<span class="log-ok">✓</span> X-axis motion detected! Starting collection');
             } else if (Date.now() - waitStart > 60000) {
-              throw new Error('60초 동안 움직임 없음 — X축을 이동하세요');
+              throw new Error('No motion for 60 seconds — please move the X-axis');
             }
           }
 
@@ -664,7 +691,7 @@ async function startAxisCalibration() {
             xSamples.push(s);
             xActive++;
             setB((15 + xActive/MIN_SEGS*25).toFixed(0));
-            if (xActive % 20 === 0) setS('↔ <b>2/'+TOTAL_PHASES+'</b> — X축 수집 ' + xActive + '/' + MIN_SEGS);
+            if (xActive % 20 === 0) setS('↔ <b>2/'+TOTAL_PHASES+'</b> — X-axis collecting ' + xActive + '/' + MIN_SEGS);
           }
         }
       } catch(e) {}
@@ -675,12 +702,12 @@ async function startAxisCalibration() {
     for (var i=0; i<xSamples.length; i++) { xMean[0]+=xSamples[i][0]; xMean[1]+=xSamples[i][1]; xMean[2]+=xSamples[i][2]; }
     xMean[0]/=xSamples.length; xMean[1]/=xSamples.length; xMean[2]/=xSamples.length;
     var xVec = covarianceEigen(xSamples, xMean);
-    log('<span class="log-ok">✓</span> X축 완료 (' + xActive + ' segs) 방향: [' + xVec.map(function(v){return v.toFixed(2)}).join(', ') + ']');
+    log('<span class="log-ok">✓</span> X-axis done (' + xActive + ' segs) direction: [' + xVec.map(function(v){return v.toFixed(2)}).join(', ') + ']');
     setB(40);
 
     // Phase 3: Y
-    setS('↕ <b>3/'+TOTAL_PHASES+'</b> — 컨트롤러에서 <b>Y축</b>을 왕복 이동하세요');
-    log('<span class="log-ok">▶</span> Phase 3: Y축 — 움직임 대기 중...');
+    setS('↕ <b>3/'+TOTAL_PHASES+'</b> — Move <b>Y-axis</b> back and forth from the controller');
+    log('<span class="log-ok">▶</span> Phase 3: Y-axis — waiting for motion...');
 
     var ySamples = [];
     var yActive = 0;
@@ -698,9 +725,9 @@ async function startAxisCalibration() {
           if (yWaiting) {
             if (e > threshold) {
               yWaiting = false;
-              log('<span class="log-ok">✓</span> Y축 움직임 감지! 수집 시작');
+              log('<span class="log-ok">✓</span> Y-axis motion detected! Starting collection');
             } else if (Date.now() - waitStart > 60000) {
-              throw new Error('60초 동안 움직임 없음 — Y축을 이동하세요');
+              throw new Error('No motion for 60 seconds — please move the Y-axis');
             }
           }
 
@@ -708,7 +735,7 @@ async function startAxisCalibration() {
             ySamples.push(s);
             yActive++;
             setB((40 + yActive/MIN_SEGS*25).toFixed(0));
-            if (yActive % 20 === 0) setS('↕ <b>3/'+TOTAL_PHASES+'</b> — Y축 수집 ' + yActive + '/' + MIN_SEGS);
+            if (yActive % 20 === 0) setS('↕ <b>3/'+TOTAL_PHASES+'</b> — Y-axis collecting ' + yActive + '/' + MIN_SEGS);
           }
         }
       } catch(e) {}
@@ -719,7 +746,7 @@ async function startAxisCalibration() {
     for (var i=0; i<ySamples.length; i++) { yMean[0]+=ySamples[i][0]; yMean[1]+=ySamples[i][1]; yMean[2]+=ySamples[i][2]; }
     yMean[0]/=ySamples.length; yMean[1]/=ySamples.length; yMean[2]/=ySamples.length;
     var yVec = covarianceEigen(ySamples, yMean);
-    log('<span class="log-ok">✓</span> Y축 완료 (' + yActive + ' segs) 방향: [' + yVec.map(function(v){return v.toFixed(2)}).join(', ') + ']');
+    log('<span class="log-ok">✓</span> Y-axis done (' + yActive + ' segs) direction: [' + yVec.map(function(v){return v.toFixed(2)}).join(', ') + ']');
     setB(65);
 
     // Gram-Schmidt
@@ -729,8 +756,8 @@ async function startAxisCalibration() {
     var fanPeaks = [];
     if (FAN_ON) {
       // Phase 4: ON
-      setS('🌀 <b>4/'+TOTAL_PHASES+'</b> — <b>핫엔드를 60°C 이상</b>으로 설정하세요 (핫엔드팬 자동 ON)');
-      log('<span class="log-ok">▶</span> Phase 4a: 핫엔드팬 — 진동 변화 대기 중...');
+      setS('🌀 <b>4/'+TOTAL_PHASES+'</b> — Set <b>hotend to 60°C+</b> (hotend fan turns ON automatically)');
+      log('<span class="log-ok">▶</span> Phase 4a: hotend fan — waiting for vibration change...');
       setB(70);
 
       var fanOnSamples = [];
@@ -749,11 +776,11 @@ async function startAxisCalibration() {
             if (fanWaiting) {
               if (e > bgVar * 1.5) {
                 fanWaiting = false;
-                log('<span class="log-ok">✓</span> 팬 진동 감지! 수집 시작');
+                log('<span class="log-ok">✓</span> Fan vibration detected! Starting collection');
               } else if (Date.now() - waitStart > 30000) {
                 // 30 ( )
                 fanWaiting = false;
-                log('<span class="log-ok">ℹ</span> 30초 경과 — 자동 수집 시작');
+                log('<span class="log-ok">ℹ</span> 30 seconds elapsed — starting collection automatically');
               }
             }
 
@@ -766,12 +793,12 @@ async function startAxisCalibration() {
         } catch(e) {}
         await new Promise(function(r){setTimeout(r,POLL_MS)});
       }
-      log('<span class="log-ok">✓</span> 팬 ON 측정 완료 (' + fanActive + ' segs)');
+      log('<span class="log-ok">✓</span> Fan ON measurement complete (' + fanActive + ' segs)');
       setB(80);
 
       // Phase 5: OFF
-      setS('🔇 <b>5/'+TOTAL_PHASES+'</b> — <b>파츠쿨링팬을 100%</b>로 켜세요 (M106 S255), 10초 후 <b>전부 끄세요</b>');
-      log('<span class="log-ok">▶</span> Phase 5: 파츠팬+OFF — 대기 중...');
+      setS('🔇 <b>5/'+TOTAL_PHASES+'</b> — Turn <b>parts fan to 100%</b> (M106 S255), then <b>turn all fans OFF</b> after 10 sec');
+      log('<span class="log-ok">▶</span> Phase 5: parts fan + OFF — waiting...');
 
       var fanOffSamples = [];
       var offWaiting = true;
@@ -789,10 +816,10 @@ async function startAxisCalibration() {
             if (offWaiting) {
               if (e < bgVar * 2.0) {
                 offWaiting = false;
-                log('<span class="log-ok">✓</span> 팬 정지 감지! 수집 시작');
+                log('<span class="log-ok">✓</span> Fan stopped! Starting collection');
               } else if (Date.now() - waitStart > 30000) {
                 offWaiting = false;
-                log('<span class="log-ok">ℹ</span> 30초 경과 — 자동 수집 시작');
+                log('<span class="log-ok">ℹ</span> 30 seconds elapsed — starting collection automatically');
               }
             }
 
@@ -805,7 +832,7 @@ async function startAxisCalibration() {
         } catch(e) {}
         await new Promise(function(r){setTimeout(r,POLL_MS)});
       }
-      log('<span class="log-ok">✓</span> 팬 OFF 측정 완료');
+      log('<span class="log-ok">✓</span> Fan OFF measurement complete');
 
       // : fanOn - fanOff
       var fanOnVar = [0,0,0], fanOffVar = [0,0,0];
@@ -823,9 +850,9 @@ async function startAxisCalibration() {
       fanEnergyRatio = offE > 0 ? onE / offE : 1;
 
       if (fanEnergyRatio > 1.5) {
-        log('<span class="log-ok">✓</span> 팬 에너지 비율: ' + fanEnergyRatio.toFixed(1) + '× (팬 진동 감지됨)');
+        log('<span class="log-ok">✓</span> Fan energy ratio: ' + fanEnergyRatio.toFixed(1) + '× (fan vibration detected)');
       } else {
-        log('<span class="log-ok">ℹ</span> 팬 에너지 비율: ' + fanEnergyRatio.toFixed(1) + '× (팬 진동 미미)');
+        log('<span class="log-ok">ℹ</span> Fan energy ratio: ' + fanEnergyRatio.toFixed(1) + '× (fan vibration minimal)');
       }
     }
     setB(90);
@@ -849,21 +876,21 @@ async function startAxisCalibration() {
       return w.map(function(v,i) { return (v>=0?'+':'') + v.toFixed(2) + '\u00B7' + labels[i]; }).join(' ');
     }
 
-    setS('✅ 캘리브레이션 완료!');
+    setS('✅ Calibration complete!');
     setB(100);
-    log('<span class="log-ok">✓</span> 직교도: ' + ((1-gs.ortho)*100).toFixed(1) + '% (X-Y ' + gs.angleXY.toFixed(1) + '\u00B0)');
+    log('<span class="log-ok">✓</span> Orthogonality: ' + ((1-gs.ortho)*100).toFixed(1) + '% (X-Y ' + gs.angleXY.toFixed(1) + '\u00B0)');
 
     if (result) {
       result.style.display = 'block';
       var html = '<div><b>Printer X</b> = ' + descAxis(gs.wx) + '</div>'
         + '<div><b>Printer Y</b> = ' + descAxis(gs.wy) + '</div>'
         + '<div><b>Printer Z</b> = ' + descAxis(gs.wz) + ' (' + (gMag/256).toFixed(2) + 'g)</div>'
-        + '<div style="margin-top:4px;font-size:11px;color:var(--tx3)">직교도: ' + ((1-gs.ortho)*100).toFixed(1) + '% | X-Y: ' + gs.angleXY.toFixed(1) + '\u00B0 | X:' + xActive + ' Y:' + yActive + ' segs</div>';
+        + '<div style="margin-top:4px;font-size:11px;color:var(--tx3)">Orthogonality: ' + ((1-gs.ortho)*100).toFixed(1) + '% | X-Y: ' + gs.angleXY.toFixed(1) + '\u00B0 | X:' + xActive + ' Y:' + yActive + ' segs</div>';
       if (FAN_ON && typeof fanEnergyRatio !== 'undefined') {
-        html += '<div style="font-size:11px;color:var(--tx3)">팬 에너지 비율: ' + fanEnergyRatio.toFixed(1) + '×</div>';
+        html += '<div style="font-size:11px;color:var(--tx3)">Fan energy ratio: ' + fanEnergyRatio.toFixed(1) + '×</div>';
       }
       if (gs.ortho > 0.15) {
-        html += '<div style="color:#EBCB8B;font-size:11px;margin-top:4px">\u26A0 직교도 낮음 — X/Y 구분이 불확실합니다. 재측정을 권장합니다.</div>';
+        html += '<div style="color:#EBCB8B;font-size:11px;margin-top:4px">\u26A0 Low orthogonality — X/Y axis separation uncertain. Re-measurement recommended.</div>';
       }
       result.innerHTML = html;
     }

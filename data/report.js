@@ -14,7 +14,6 @@ function generateReport() {
     return;
   }
   var lang = typeof curLang !== 'undefined' ? curLang : 'en';
-  var ko = lang === 'ko';
   var cfg = getSettingsCfg();
   var kin = cfg.kin || 'corexy';
   var xPerf = xAnalysis.recommended ? xAnalysis.recommended.performance : null;
@@ -47,34 +46,43 @@ function generateReport() {
   // 3.
   var effectX = typeof estimateShaperEffect === 'function' ? estimateShaperEffect(xAnalysis) : null;
   var effectY = typeof estimateShaperEffect === 'function' ? estimateShaperEffect(yAnalysis) : null;
+  var testConfidence = Math.min(xAnalysis.confidence || 0, yAnalysis.confidence || 0);
+  var confBand = testConfidence >= 0.8 ? 'High'
+    : testConfidence >= 0.5 ? 'Medium'
+    : 'Low';
+  var confGuide = testConfidence >= 0.8
+    ? 'Signal quality is strong enough for applying the result.'
+    : testConfidence >= 0.5
+      ? 'Usable, but you may re-measure if you want a cleaner result.'
+      : 'Measurement signal quality is low. Check sensor mounting and print conditions, then re-measure.';
 
   // 3b. + +
   var fanHtml = '';
   if (typeof _fanHotendPsd !== 'undefined' && _fanHotendPsd && _fanHotendPsd.length > 0) {
-    fanHtml = '<h2>\uD83C\uDF00 '+(ko?'팬 진동 분류':'Fan Vibration Classification')+'</h2>';
+    fanHtml = '<h2>\uD83C\uDF00 '+'Fan Vibration Classification'+'</h2>';
     for (var i=0; i<_fanHotendPsd.length; i++) {
       var ff = (_fanHotendPsd[i].freq||_fanHotendPsd[i].f||0).toFixed(0);
       fanHtml += '<div class="dg" style="border-left-color:#EBCB8B"><span class="di">\uD83C\uDF00</span><span>'+ff+'Hz — '
-        +(ko?'팬 기여분 차감 완료. 잔여 파워가 있으면 기계 공진도 존재':'Fan contribution subtracted. Remaining power indicates mechanical resonance')
+        +'Fan contribution subtracted. Remaining power indicates mechanical resonance'
         +'</span></div>';
     }
   }
   var harmHtml = '';
   if (xAnalysis._harmonics && xAnalysis._harmonics.length > 0) {
-    harmHtml = '<h2>\uD83C\uDFB5 '+(ko?'하모닉 감지':'Harmonics Detected')+'</h2>';
+    harmHtml = '<h2>\uD83C\uDFB5 '+'Harmonics Detected'+'</h2>';
     for (var i=0; i<xAnalysis._harmonics.length; i++) {
       var h = xAnalysis._harmonics[i];
-      harmHtml += '<div class="dg" style="border-left-color:#B48EAD"><span class="di">\uD83C\uDFB5</span><span>'+(ko?h.ko:h.en)+'</span></div>';
+      harmHtml += '<div class="dg" style="border-left-color:#B48EAD"><span class="di">\uD83C\uDFB5</span><span>'+h.en+'</span></div>';
     }
   }
   var zoomHtml = '';
   if (xAnalysis._zoom && xAnalysis._zoom.improved) {
-    zoomHtml += '<div class="dg" style="border-left-color:#88C0D0"><span class="di">\uD83D\uDD0D</span><span>X '+(ko?'줌 정밀화':'Zoom refined')+': \u03B6='+xAnalysis._zoom.damping.toFixed(3)+' Q='+xAnalysis._zoom.Q.toFixed(1)+'</span></div>';
+    zoomHtml += '<div class="dg" style="border-left-color:#88C0D0"><span class="di">\uD83D\uDD0D</span><span>X '+'Zoom refined'+': \u03B6='+xAnalysis._zoom.damping.toFixed(3)+' Q='+xAnalysis._zoom.Q.toFixed(1)+'</span></div>';
   }
   if (yAnalysis._zoom && yAnalysis._zoom.improved) {
-    zoomHtml += '<div class="dg" style="border-left-color:#88C0D0"><span class="di">\uD83D\uDD0D</span><span>Y '+(ko?'줌 정밀화':'Zoom refined')+': \u03B6='+yAnalysis._zoom.damping.toFixed(3)+' Q='+yAnalysis._zoom.Q.toFixed(1)+'</span></div>';
+    zoomHtml += '<div class="dg" style="border-left-color:#88C0D0"><span class="di">\uD83D\uDD0D</span><span>Y '+'Zoom refined'+': \u03B6='+yAnalysis._zoom.damping.toFixed(3)+' Q='+yAnalysis._zoom.Q.toFixed(1)+'</span></div>';
   }
-  if (zoomHtml) zoomHtml = '<h2>\uD83D\uDD0D '+(ko?'피크 정밀 분석':'Peak Precision')+'</h2>' + zoomHtml;
+  if (zoomHtml) zoomHtml = '<h2>\uD83D\uDD0D '+'Peak Precision'+'</h2>' + zoomHtml;
 
   // 4.
   var healthGrade = null;
@@ -91,11 +99,16 @@ function generateReport() {
   var qHtml = '';
   if (_lastGateRatio > 0) {
     qHtml = '<div class="g3">'
-      + '<div class="mc"><div class="ml">'+(ko?'유효 세그':'Active')+'</div><div class="mv">'+(_lastGateRatio*100).toFixed(0)+'%</div><div class="ms">'+_lastSegActive+'/'+_lastSegTotal+'</div></div>'
-      + '<div class="mc"><div class="ml">'+(ko?'X/Y 분리':'Separation')+'</div><div class="mv">'+(100-_lastCorrelation*100).toFixed(0)+'%</div></div>'
-      + '<div class="mc"><div class="ml">'+(ko?'수렴':'Convergence')+'</div><div class="mv">\u00B1'+Math.max(_lastConvergenceX,_lastConvergenceY).toFixed(1)+'Hz</div></div>'
+      + '<div class="mc"><div class="ml">'+'Active'+'</div><div class="mv">'+(_lastGateRatio*100).toFixed(0)+'%</div><div class="ms">'+_lastSegActive+'/'+_lastSegTotal+'</div></div>'
+      + '<div class="mc"><div class="ml">'+'Separation'+'</div><div class="mv">'+(100-_lastCorrelation*100).toFixed(0)+'%</div></div>'
+      + '<div class="mc"><div class="ml">'+'Convergence'+'</div><div class="mv">\u00B1'+Math.max(_lastConvergenceX,_lastConvergenceY).toFixed(1)+'Hz</div></div>'
       + '</div>';
   }
+  var confHtml = '<h2>📌 '+'Test Confidence'+'</h2>'
+    + '<div class="cd"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px">'
+    + '<div><div class="sm">'+'Measurement signal quality'+'</div><div class="vl">'+(testConfidence*100).toFixed(0)+' <span class="un">%</span></div></div>'
+    + '<div style="text-align:right"><span class="tg">'+confBand+'</span></div></div>'
+    + '<div class="sm" style="margin-top:10px">'+confGuide+'</div></div>';
 
   // 6. HTML
   var iconMap = {good:'\u2705',info:'\u2139\uFE0F',warn:'\u26A0\uFE0F',alert:'\uD83D\uDD34'};
@@ -107,22 +120,22 @@ function generateReport() {
       var d = items[i];
       var icon = iconMap[d.status] || '\u2139\uFE0F';
       var color = colorMap[d.status] || '#88C0D0';
-      var text = ko ? (d.ko||d.en||'') : (d.en||d.ko||'');
+      var text = d.en || '';
       h += '<div class="dg" style="border-left-color:'+color+'"><span class="di">'+icon+'</span><span>'+text+'</span></div>';
     }
     return h;
   }
 
   var kinName = typeof getKinProfile === 'function' ? getKinProfile(kin).name : kin;
-  var kinDiagHtml = mkDiag(kinDiag, '\uD83D\uDD0D '+(ko?'키네마틱 진단':'Kinematics') + ' <small>('+kinName+')</small>');
-  var compDiagHtml = mkDiag(compDiag, '\uD83D\uDCC8 '+(ko?'이전 대비 변화':'vs Previous'));
+  var kinDiagHtml = mkDiag(kinDiag, '\uD83D\uDD0D '+'Kinematics' + ' <small>('+kinName+')</small>');
+  var compDiagHtml = mkDiag(compDiag, '\uD83D\uDCC8 '+'vs Previous');
 
   //
   var effHtml = '';
   if (effectX || effectY) {
-    effHtml = '<h2>\uD83C\uDFAF '+(ko?'쉐이퍼 효과 추정':'Shaper Effect')+'</h2><div class="g2">';
-    if (effectX && effectX.perf) effHtml += '<div class="cd"><h3>X \u2014 '+effectX.perf.name+'@'+effectX.perf.freq.toFixed(1)+'Hz</h3><div class="vl">'+effectX.perf.suppression+'% <span class="un">'+(ko?'억제':'suppr.')+'</span></div><div class="sm">'+effectX.perf.maxAccel.toLocaleString()+' mm/s\u00B2</div></div>';
-    if (effectY && effectY.perf) effHtml += '<div class="cd"><h3>Y \u2014 '+effectY.perf.name+'@'+effectY.perf.freq.toFixed(1)+'Hz</h3><div class="vl">'+effectY.perf.suppression+'% <span class="un">'+(ko?'억제':'suppr.')+'</span></div><div class="sm">'+effectY.perf.maxAccel.toLocaleString()+' mm/s\u00B2</div></div>';
+    effHtml = '<h2>\uD83C\uDFAF '+'Shaper Effect'+'</h2><div class="g2">';
+    if (effectX && effectX.perf) effHtml += '<div class="cd"><h3>X \u2014 '+effectX.perf.name+'@'+effectX.perf.freq.toFixed(1)+'Hz</h3><div class="vl">'+effectX.perf.suppression+'% <span class="un">'+'suppr.'+'</span></div><div class="sm">'+effectX.perf.maxAccel.toLocaleString()+' mm/s\u00B2</div></div>';
+    if (effectY && effectY.perf) effHtml += '<div class="cd"><h3>Y \u2014 '+effectY.perf.name+'@'+effectY.perf.freq.toFixed(1)+'Hz</h3><div class="vl">'+effectY.perf.suppression+'% <span class="un">'+'suppr.'+'</span></div><div class="sm">'+effectY.perf.maxAccel.toLocaleString()+' mm/s\u00B2</div></div>';
     effHtml += '</div>';
   }
 
@@ -130,10 +143,10 @@ function generateReport() {
   var hHtml = '';
   if (healthGrade) {
     var gradeL = {excellent:'\uD83D\uDFE2 Excellent',normal:'\uD83D\uDFE1 Normal',caution:'\uD83D\uDFE0 Caution',warning:'\uD83D\uDD34 Warning',critical:'\u26D4 Critical'};
-    hHtml = '<h2>\uD83E\uDE7A '+(ko?'피크 건강도':'Peak Health')+' \u2014 '+(gradeL[healthGrade.grade]||healthGrade.grade)+'</h2>';
+    hHtml = '<h2>\uD83E\uDE7A '+'Peak Health'+' \u2014 '+(gradeL[healthGrade.grade]||healthGrade.grade)+'</h2>';
     for (var i=0; i<healthGrade.findings.length; i++) {
       var f = healthGrade.findings[i];
-      hHtml += '<div class="fn"><b>'+(f.freq?f.freq.toFixed(0):'?')+'Hz</b> \u2014 '+(ko?(f.desc_ko||f.desc):(f.desc||''))+'<br><span class="ac">\u2192 '+(ko?(f.action_ko||f.action):(f.action||''))+'</span></div>';
+      hHtml += '<div class="fn"><b>'+(f.freq?f.freq.toFixed(0):'?')+'Hz</b> \u2014 '+(f.desc||'')+'<br><span class="ac">\u2192 '+(f.action||'')+'</span></div>';
     }
   }
 
@@ -174,19 +187,20 @@ function generateReport() {
     + '</style></head><body>'
     + '<h1>FEMTO SHAPER</h1>'
     + '<div class="sub">'+ts+' | '+kinName+' '+cfg.buildX+'\u00D7'+cfg.buildY+'mm | '+cfg.firmware+' | v1.0</div>'
-    + '<h2>\uD83D\uDCCA '+(ko?'측정 결과':'Results')+'</h2>'
+    + '<h2>\uD83D\uDCCA '+'Results'+'</h2>'
     + '<div class="g2">'
-    + '<div class="cd"><h3>X '+(ko?'축':'Axis')+'</h3><div class="vl">'+peakX.toFixed(1)+' <span class="un">Hz</span></div>'
+    + '<div class="cd"><h3>X '+'Axis'+'</h3><div class="vl">'+peakX.toFixed(1)+' <span class="un">Hz</span></div>'
     + '<div style="margin-top:6px"><span class="tg">'+xPerf.name+'</span> <span class="un">@ '+xPerf.freq.toFixed(1)+'Hz</span></div>'
     + '<div class="sm">Accel: '+xPerf.maxAccel.toLocaleString()+' | Vibr: '+xPerf.vibrPct.toFixed(1)+'%</div><canvas id="cRX"></canvas></div>'
-    + '<div class="cd"><h3>Y '+(ko?'축':'Axis')+'</h3><div class="vl">'+peakY.toFixed(1)+' <span class="un">Hz</span></div>'
+    + '<div class="cd"><h3>Y '+'Axis'+'</h3><div class="vl">'+peakY.toFixed(1)+' <span class="un">Hz</span></div>'
     + '<div style="margin-top:6px"><span class="tg">'+yPerf.name+'</span> <span class="un">@ '+yPerf.freq.toFixed(1)+'Hz</span></div>'
     + '<div class="sm">Accel: '+yPerf.maxAccel.toLocaleString()+' | Vibr: '+yPerf.vibrPct.toFixed(1)+'%</div><canvas id="cRY"></canvas></div>'
     + '</div>'
     + '<div class="cd" style="margin-top:12px"><div style="display:flex;justify-content:space-between;align-items:center">'
-    + '<div><span class="sm">'+(ko?'안전 최대 가속도':'Safe Max Accel')+'</span><br><span class="vl">'+safeAccel.toLocaleString()+' <span class="un">mm/s\u00B2</span></span></div>'
-    + (healthGrade ? '<div style="text-align:right"><span class="sm">'+(ko?'건강도':'Health')+'</span><br><span style="font-size:24px">'+healthGrade.icon+'</span></div>' : '')
+    + '<div><span class="sm">'+'Safe Max Accel'+'</span><br><span class="vl">'+safeAccel.toLocaleString()+' <span class="un">mm/s\u00B2</span></span></div>'
+    + (healthGrade ? '<div style="text-align:right"><span class="sm">'+'Health'+'</span><br><span style="font-size:24px">'+healthGrade.icon+'</span></div>' : '')
     + '</div></div>'
+    + confHtml
     + qHtml
     + effHtml
     + fanHtml
@@ -195,9 +209,9 @@ function generateReport() {
     + kinDiagHtml
     + compDiagHtml
     + hHtml
-    + '<h2>\u26A1 '+(ko?'적용 명령':'Apply')+ ' ('+cfg.firmware+')</h2>'
+    + '<h2>\u26A1 '+'Apply'+ ' ('+cfg.firmware+')</h2>'
     + '<pre>'+applyCmd.replace(/</g,'&lt;')+'</pre>'
-    + '<div class="ft">FEMTO SHAPER v1.0 \u2014 '+(ko?'오픈소스 3D프린터 진동 분석기':'Open Source 3D Printer Vibration Analyzer')+'</div>'
+    + '<div class="ft">FEMTO SHAPER v1.0 \u2014 '+'Open Source 3D Printer Vibration Analyzer'+'</div>'
     + '<script>'+chartFn+';var xP='+xPJ+';var yP='+yPJ+';window.onload=function(){drawRptPSD("cRX",xP,'+peakX+',"#5E81AC");drawRptPSD("cRY",yP,'+peakY+',"#A3BE8C")}</script>'
     + '</body></html>';
 

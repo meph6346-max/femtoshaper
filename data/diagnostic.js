@@ -208,7 +208,6 @@ function computeComplexity(features) {
 // Overview UI
 function updateDiagOverview() {
   const kin = typeof getCfgKin === 'function' ? getCfgKin() : 'corexy';
-  const ko = typeof curLang !== 'undefined' && curLang === 'ko';
   const peakX = typeof peakFreqXGlobal !== 'undefined' ? peakFreqXGlobal : 0;
   const peakY = typeof peakFreqYGlobal !== 'undefined' ? peakFreqYGlobal : 0;
 
@@ -263,38 +262,34 @@ function updateDiagOverview() {
 
     if (zone === 'belt') {
       icon = '🔗'; severity = 'info';
-      title = ko ? f+'Hz 벨트 영역 공진 ('+ax+'축)' : f+'Hz Belt zone resonance ('+ax+'-axis)';
+      title = tp('diag_belt_zone_title', {f, ax});
       if (kin === 'corexy') {
-        desc = ko ? '이 주파수는 벨트 장력에 의해 결정됩니다. X/Y 두 축에 비슷한 주파수가 나오면 정상입니다.'
-                  : 'This frequency is determined by belt tension. Similar frequencies on both axes is normal for CoreXY.';
-        action = ko ? '벨트 장력이 균일한지 확인하세요. 손으로 튕겨서 같은 음이 나면 OK.' : 'Check belt tension is even. Pluck both belts — same pitch = OK.';
+        desc = t('diag_corexy_belt_desc');
+        action = t('diag_corexy_belt_action');
       } else {
-        desc = ko ? '벨트 장력에 의한 공진입니다.' : 'Resonance from belt tension.';
-        action = ko ? '벨트 장력을 확인하세요.' : 'Check belt tension.';
+        desc = t('diag_belt_desc');
+        action = t('diag_belt_action');
       }
     } else if (zone === 'carriage' || zone === 'endmass') {
       icon = '🛷'; severity = snrLevel==='strong' ? 'warn' : 'info';
-      title = ko ? f+'Hz 캐리지/핫엔드 공진 ('+ax+'축)' : f+'Hz Carriage/hotend resonance ('+ax+'-axis)';
-      desc = ko ? '프린트 헤드(핫엔드)와 캐리지의 질량에 의한 공진입니다. 볼트가 느슨하면 이 피크가 강하게 나타납니다.'
-                : 'Resonance from printhead and carriage mass. Loose bolts make this peak stronger.';
-      action = ko ? '핫엔드 마운트 볼트를 확인하세요. 캐리지 바퀴/레일 상태도 점검하세요.' : 'Check hotend mount bolts. Also inspect carriage wheels/rails.';
+      title = tp('diag_carriage_zone_title', {f, ax});
+      desc = t('diag_carriage_zone_desc');
+      action = t('diag_carriage_zone_action');
     } else if (zone === 'frame') {
       icon = '🏗️'; severity = snrLevel==='strong' ? 'warn' : 'info';
-      title = ko ? f+'Hz 프레임 공진 ('+ax+'축)' : f+'Hz Frame resonance ('+ax+'-axis)';
-      desc = ko ? '프레임 구조의 강성에 의한 공진입니다. 프레임이 약하거나 볼트가 느슨하면 나타납니다.'
-                : 'Resonance from frame rigidity. Appears when frame is weak or bolts are loose.';
-      action = ko ? '프레임 코너 볼트를 모두 조이세요. 프린터가 단단한 표면 위에 있는지 확인하세요.' : 'Tighten all frame corner bolts. Ensure printer is on a solid surface.';
+      title = tp('diag_frame_zone_title', {f, ax});
+      desc = t('diag_frame_zone_desc');
+      action = t('diag_frame_zone_action');
     } else {
       icon = '📍'; severity = 'info';
-      title = ko ? f+'Hz 공진 감지 ('+ax+'축)' : f+'Hz Resonance detected ('+ax+'-axis)';
-      desc = ko ? '인풋 쉐이퍼가 이 주파수의 진동을 자동으로 억제합니다.' : 'Input shaper will automatically suppress vibration at this frequency.';
-      action = ko ? '쉐이퍼 결과를 프린터에 적용하세요.' : 'Apply the shaper result to your printer.';
+      title = tp('diag_generic_zone_title', {f, ax});
+      desc = t('diag_generic_zone_desc');
+      action = t('diag_generic_zone_action');
     }
 
     // Cartesian Y
     if (kin === 'cartesian' && ax === 'Y') {
-      desc = ko ? '베드(Y축)가 무겁기 때문에 공진 주파수가 낮습니다. 이것은 Cartesian 프린터의 정상적인 특성입니다.'
-                : 'The bed (Y-axis) is heavy, so resonance frequency is low. This is normal for Cartesian printers.';
+      desc = t('diag_cart_y_desc');
       severity = 'info';
     }
 
@@ -307,7 +302,7 @@ function updateDiagOverview() {
       findings.push({
         icon: r.status === 'alert' ? '❌' : '⚠️',
         severity: r.status === 'alert' ? 'error' : 'warn',
-        title: ko ? (r.ko || r.en) : (r.en || r.ko),
+        title: r.en || r.message || '',
         desc: '', action: '',
       });
     }
@@ -318,9 +313,8 @@ function updateDiagOverview() {
     const harmList = harmPeaks.map(p => p.f.toFixed(0)+'Hz('+p.axis+')='+((p.harmonicOf||0).toFixed(0))+'Hz×'+p.harmonicOrder).join(', ');
     findings.push({
       icon: '🎵', severity: 'ok',
-      title: ko ? '하모닉 '+harmPeaks.length+'개 감지 — 자동 처리됨' : harmPeaks.length+' harmonic(s) detected — auto-handled',
-      desc: ko ? '기본 주파수의 배수 진동입니다. 인풋 쉐이퍼가 자동으로 처리하므로 걱정하지 않아도 됩니다. ('+harmList+')'
-              : 'Integer multiples of fundamental frequency. Input shaper handles these automatically. ('+harmList+')',
+      title: tp('diag_harmonic_title', {n: harmPeaks.length}),
+      desc: tp('diag_harmonic_desc', {list: harmList}),
       action: '',
     });
   }
@@ -329,10 +323,9 @@ function updateDiagOverview() {
   if (fanPeaks.length > 0) {
     findings.push({
       icon: '🌀', severity: 'ok',
-      title: ko ? '팬 진동 '+fanPeaks.length+'개 감지 — 쉐이퍼 대상 아님' : fanPeaks.length+' fan vibration(s) — not shaper target',
-      desc: ko ? '냉각 팬에 의한 진동입니다. 인풋 쉐이퍼로는 해결되지 않습니다. 방진마운트 사용을 권장합니다.'
-              : 'Vibration from cooling fans. Cannot be fixed by input shaper. Anti-vibration mounts recommended.',
-      action: ko ? '팬 방진마운트를 설치하세요.' : 'Install fan anti-vibration mounts.',
+      title: tp('diag_fan_title', {n: fanPeaks.length}),
+      desc: t('diag_fan_desc'),
+      action: t('diag_fan_action'),
     });
   }
 
@@ -347,21 +340,21 @@ function updateDiagOverview() {
 
   if (warnCount > 0) {
     if (overallIcon) overallIcon.textContent = '🟡';
-    if (overallTitle) overallTitle.textContent = ko ? '주의 사항이 있습니다' : 'Attention needed';
+    if (overallTitle) overallTitle.textContent = t('diag_warn_attention');
     if (overallTitle) overallTitle.style.color = '#EBCB8B';
-    if (overallDesc) overallDesc.textContent = ko ? warnCount+'개 항목을 확인해 주세요' : 'Please check '+warnCount+' item(s)';
+    if (overallDesc) overallDesc.textContent = tp('diag_warn_check_n', {n: warnCount});
     if (overallCard) overallCard.style.borderLeft = '4px solid #EBCB8B';
   } else if (realPeaks.length > 0) {
     if (overallIcon) overallIcon.textContent = '🟢';
-    if (overallTitle) overallTitle.textContent = ko ? '프린터 상태 양호' : 'Printer looks good';
+    if (overallTitle) overallTitle.textContent = t('diag_printer_good');
     if (overallTitle) overallTitle.style.color = '#A3BE8C';
-    if (overallDesc) overallDesc.textContent = ko ? '인풋 쉐이퍼 결과를 적용하면 출력 품질이 향상됩니다' : 'Apply input shaper results to improve print quality';
+    if (overallDesc) overallDesc.textContent = t('diag_printer_good_desc');
     if (overallCard) overallCard.style.borderLeft = '4px solid #A3BE8C';
   } else {
     if (overallIcon) overallIcon.textContent = '🔵';
-    if (overallTitle) overallTitle.textContent = ko ? '뚜렷한 공진 없음' : 'No clear resonance';
+    if (overallTitle) overallTitle.textContent = t('diag_no_resonance');
     if (overallTitle) overallTitle.style.color = '#88C0D0';
-    if (overallDesc) overallDesc.textContent = ko ? '센서 부착 상태를 확인하거나 더 오래 측정해 보세요' : 'Check sensor attachment or measure longer';
+    if (overallDesc) overallDesc.textContent = t('diag_no_resonance_desc');
     if (overallCard) overallCard.style.borderLeft = '4px solid #88C0D0';
   }
 
@@ -390,7 +383,7 @@ function updateDiagOverview() {
 
   if (sorted.length === 0 && realPeaks.length === 0) {
     html = '<div class="card" style="padding:16px;text-align:center;color:var(--tx3)"><div style="font-size:24px;margin-bottom:8px">✨</div>'
-      + (ko ? '이상 없음 — 정상 상태입니다' : 'All clear — everything looks normal') + '</div>';
+      + t('diag_all_clear') + '</div>';
   }
 
   findingsEl.innerHTML = html;

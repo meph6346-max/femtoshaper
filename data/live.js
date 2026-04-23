@@ -5,10 +5,28 @@
 
 let liveRunning   = false;
 let liveInterval  = null;
-const DSP_BINS = 59; // DSP_BIN_MAX - DSP_BIN_MIN + 1 (bin 6~64)
-let liveData      = new Array(DSP_BINS).fill(0);
+let liveBinCount  = 59;
+window.liveBinMin = 6;
+window.liveFreqRes = 3.125;
+let liveData      = new Array(liveBinCount).fill(0);
 let livePeakFreq  = 0;
 let liveEnergy    = 0;
+const LIVE_BAR_ALPHA = 0.45;
+const LIVE_PEAK_ALPHA = 0.35;
+
+function resizeLiveBins(binCount) {
+  const nextCount = Math.max(1, parseInt(binCount || 0, 10));
+  if (!Number.isFinite(nextCount) || nextCount <= 0 || nextCount === liveData.length) return;
+  liveBinCount = nextCount;
+  liveData = new Array(liveBinCount).fill(0);
+  if (typeof syncLiveChartBinCount === 'function') syncLiveChartBinCount(liveBinCount);
+}
+
+function blendLiveValue(prev, next, alpha) {
+  const safePrev = Number.isFinite(prev) ? prev : 0;
+  const safeNext = Number.isFinite(next) ? next : 0;
+  return safePrev * (1 - alpha) + safeNext * alpha;
+}
 
 
 // ADXL
@@ -30,7 +48,7 @@ function toggleLive() {
     fetch('/api/config').then(function(r){return r.json()}).then(function(d){
       if (!d.useCalWeights) {
         var el = document.getElementById('liveHint');
-        if (el) el.innerHTML = '<span style="color:#EBCB8B">⚠ 캘리브레이션 미실행 — 센서 raw 축 사용 중. 정확한 X/Y 분리를 위해 설정에서 캘리브레이션을 실행하세요.</span>';
+        if (el) el.innerHTML = '<span style="color:#EBCB8B">⚠ ' + t('live_cal_not_run') + '</span>';
       }
     }).catch(function(){});
     ledBlink();
@@ -80,18 +98,16 @@ function toggleLive() {
         const binsX = d.bx || d.b || [];
         const binsY = d.by || [];
         if (binsX.length > 0) {
-          // Resize buffers if the server sent a different bin count (happens
-          // on first frame after boot or a sampleRate change). Fixes the
-          // sampleRate != 3200 case where bin count is 117/233/465 but the
-          // client only retained 59, silently hiding higher-freq content.
-          if (typeof ensureLiveBufSize === 'function') ensureLiveBufSize(binsX.length);
+          if (Number.isFinite(d.bm)) window.liveBinMin = d.bm;
+          if (Number.isFinite(d.fr)) window.liveFreqRes = d.fr;
+          resizeLiveBins(Math.max(binsX.length, binsY.length || 0));
           for (let i = 0; i < binsX.length && i < liveData.length; i++) {
-            liveData[i] = liveData[i] * 0.3 + binsX[i] * 0.7;
+            liveData[i] = blendLiveValue(liveData[i], binsX[i], LIVE_BAR_ALPHA);
             if (liveData[i] < 0.01) liveData[i] = 0;  //
           }
           const ySmoothed = new Array(liveData.length).fill(0);
           for (let i = 0; i < binsY.length && i < ySmoothed.length; i++) {
-            ySmoothed[i] = (typeof liveDataY !== 'undefined' ? liveDataY[i] : 0) * 0.3 + binsY[i] * 0.7;
+            ySmoothed[i] = blendLiveValue(typeof liveDataY !== 'undefined' ? liveDataY[i] : 0, binsY[i], LIVE_BAR_ALPHA);
             if (ySmoothed[i] < 0.01) ySmoothed[i] = 0;
           }
           drawLiveFrame(liveData, ySmoothed);
@@ -99,14 +115,15 @@ function toggleLive() {
           // X
           const pk = d.pkx || d.pk || 0;
           if (pk > 0) {
-            livePeakFreq = pk;
+            livePeakFreq = blendLiveValue(livePeakFreq, pk, LIVE_PEAK_ALPHA);
             const peakEl = document.getElementById('livePeak');
-            if (peakEl) peakEl.textContent = pk.toFixed(1) + ' Hz';
+            if (peakEl) peakEl.textContent = livePeakFreq.toFixed(1) + ' Hz';
           }
           // Y
           if (d.pky > 0) {
+            const smoothedPeakY = blendLiveValue(parseFloat(document.getElementById('livePeakY')?.textContent) || 0, d.pky, LIVE_PEAK_ALPHA);
             const pyEl = document.getElementById('livePeakY');
-            if (pyEl) pyEl.textContent = d.pky.toFixed(1) + ' Hz';
+            if (pyEl) pyEl.textContent = smoothedPeakY.toFixed(1) + ' Hz';
           }
           liveEnergy = d.e || 0;
         }
@@ -159,7 +176,7 @@ function initLive() {
   const hintEl = document.getElementById('liveHint');
   fetch('/api/config').then(function(r){return r.json()}).then(function(d){
     if (hintEl && !d.useCalWeights) {
-      hintEl.innerHTML = '<span style="color:#EBCB8B">⚠ 캘리브레이션 필요<br>설정에서 먼저 실행하세요</span>';
+      hintEl.innerHTML = '<span style="color:#EBCB8B">⚠ ' + t('live_cal_not_run') + '</span>';
     }
   }).catch(function(){});
 }
