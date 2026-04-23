@@ -229,7 +229,7 @@ function drawLiveFrame(liveData, dataY) {
       },
       options: {
         responsive:true, maintainAspectRatio:false,
-        animation:{duration:80},
+        animation:{duration:160},
         plugins:{legend:{display:false},tooltip:{callbacks:{
           title:(i)=>i[0].label+' Hz',
           label:(i)=>i.datasetIndex===2?'':((i.datasetIndex===0?'X':'Y')+': '+i.raw.toFixed(1)),
