@@ -103,7 +103,7 @@ struct Config {
   char staPass[65] = "";
   char hostname[32] = "femto";  // mDNS name (resolves as <hostname>.local)
   int    powerHz  = 60;  // mains notch filter frequency (60/50/0 = off)
-  int    liveSegs = 2;   // live-mode SSE segment interval before publishing
+  int    liveSegs = 1;   // live-mode SSE segment interval before publishing
 } cfg;
 
 // ============ LED (Active Low, GPIO8 = BUILTIN LED) ============

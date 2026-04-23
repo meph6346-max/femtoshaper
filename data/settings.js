@@ -42,7 +42,7 @@ function saveSettings(silent) {
     staPass:    document.getElementById('s_staPass')?.value || '',
     hostname:   (document.getElementById('s_hostname')?.value || 'femto').toLowerCase().replace(/[^a-z0-9\-]/g,'') || 'femto',
     powerHz:    parseInt(document.getElementById('s_powerHz')?.value || '60'),
-    liveSegs:   parseInt(document.getElementById('s_liveSegs')?.value || '2'),
+    liveSegs:   parseInt(document.getElementById('s_liveSegs')?.value || '1'),
   };
 
   // ESP32 NVS

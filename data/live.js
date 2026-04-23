@@ -11,6 +11,8 @@ window.liveFreqRes = 3.125;
 let liveData      = new Array(liveBinCount).fill(0);
 let livePeakFreq  = 0;
 let liveEnergy    = 0;
+const LIVE_BAR_ALPHA = 0.45;
+const LIVE_PEAK_ALPHA = 0.35;
 
 function resizeLiveBins(binCount) {
   const nextCount = Math.max(1, parseInt(binCount || 0, 10));
@@ -18,6 +20,12 @@ function resizeLiveBins(binCount) {
   liveBinCount = nextCount;
   liveData = new Array(liveBinCount).fill(0);
   if (typeof syncLiveChartBinCount === 'function') syncLiveChartBinCount(liveBinCount);
+}
+
+function blendLiveValue(prev, next, alpha) {
+  const safePrev = Number.isFinite(prev) ? prev : 0;
+  const safeNext = Number.isFinite(next) ? next : 0;
+  return safePrev * (1 - alpha) + safeNext * alpha;
 }
 
 
@@ -94,12 +102,12 @@ function toggleLive() {
           if (Number.isFinite(d.fr)) window.liveFreqRes = d.fr;
           resizeLiveBins(Math.max(binsX.length, binsY.length || 0));
           for (let i = 0; i < binsX.length && i < liveData.length; i++) {
-            liveData[i] = liveData[i] * 0.3 + binsX[i] * 0.7;
+            liveData[i] = blendLiveValue(liveData[i], binsX[i], LIVE_BAR_ALPHA);
             if (liveData[i] < 0.01) liveData[i] = 0;  //
           }
           const ySmoothed = new Array(liveData.length).fill(0);
           for (let i = 0; i < binsY.length && i < ySmoothed.length; i++) {
-            ySmoothed[i] = (typeof liveDataY !== 'undefined' ? liveDataY[i] : 0) * 0.3 + binsY[i] * 0.7;
+            ySmoothed[i] = blendLiveValue(typeof liveDataY !== 'undefined' ? liveDataY[i] : 0, binsY[i], LIVE_BAR_ALPHA);
             if (ySmoothed[i] < 0.01) ySmoothed[i] = 0;
           }
           drawLiveFrame(liveData, ySmoothed);
@@ -107,14 +115,15 @@ function toggleLive() {
           // X
           const pk = d.pkx || d.pk || 0;
           if (pk > 0) {
-            livePeakFreq = pk;
+            livePeakFreq = blendLiveValue(livePeakFreq, pk, LIVE_PEAK_ALPHA);
             const peakEl = document.getElementById('livePeak');
-            if (peakEl) peakEl.textContent = pk.toFixed(1) + ' Hz';
+            if (peakEl) peakEl.textContent = livePeakFreq.toFixed(1) + ' Hz';
           }
           // Y
           if (d.pky > 0) {
+            const smoothedPeakY = blendLiveValue(parseFloat(document.getElementById('livePeakY')?.textContent) || 0, d.pky, LIVE_PEAK_ALPHA);
             const pyEl = document.getElementById('livePeakY');
-            if (pyEl) pyEl.textContent = d.pky.toFixed(1) + ' Hz';
+            if (pyEl) pyEl.textContent = smoothedPeakY.toFixed(1) + ' Hz';
           }
           liveEnergy = d.e || 0;
         }
