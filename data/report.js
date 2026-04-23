@@ -90,11 +90,36 @@ function generateReport() {
   // 5.
   var qHtml = '';
   if (_lastGateRatio > 0) {
+    var confScore = lastShaperResult ? (lastShaperResult.verdict ? lastShaperResult.verdict.overallScore : (lastShaperResult.confidence || 0)) : 0;
+    var confPct = (confScore * 100).toFixed(0);
+    var confVerdict = lastShaperResult && lastShaperResult.verdict ? lastShaperResult.verdict.verdict : '';
+    var confColor = confVerdict === 'apply' ? '#A3BE8C' : confVerdict === 'review' ? '#EBCB8B' : '#BF616A';
+    var confLabel = confVerdict === 'apply'
+      ? (ko ? '\u2705 Apply — 펩웨어에 바로 적용하세요' : '\u2705 Apply — ready to apply to firmware')
+      : confVerdict === 'review'
+      ? (ko ? '\u26A0 Review — 확인 후 적용하세요' : '\u26A0 Review — verify before applying')
+      : confVerdict === 'retry'
+      ? (ko ? '\uD83D\uDD34 Retry — 재측정 권장' : '\uD83D\uDD34 Retry — re-measurement recommended')
+      : '';
     qHtml = '<div class="g3">'
       + '<div class="mc"><div class="ml">'+(ko?'유효 세그':'Active')+'</div><div class="mv">'+(_lastGateRatio*100).toFixed(0)+'%</div><div class="ms">'+_lastSegActive+'/'+_lastSegTotal+'</div></div>'
       + '<div class="mc"><div class="ml">'+(ko?'X/Y 분리':'Separation')+'</div><div class="mv">'+(100-_lastCorrelation*100).toFixed(0)+'%</div></div>'
       + '<div class="mc"><div class="ml">'+(ko?'수렴':'Convergence')+'</div><div class="mv">\u00B1'+Math.max(_lastConvergenceX,_lastConvergenceY).toFixed(1)+'Hz</div></div>'
-      + '</div>';
+      + '</div>'
+      + '<div style="background:#3B4252;border-radius:8px;padding:12px;margin:8px 0">'
+      + '<div style="font-size:12px;color:#81A1C1;margin-bottom:6px">'+(ko?'📊 측정 신뢰도 (Confidence)':'📊 Measurement Confidence')+'</div>'
+      + '<div style="font-size:20px;font-weight:700;color:'+confColor+'">'+confPct+'%'+(confLabel?' — <span style=\"font-size:14px\">'+confLabel+'</span>':'')+'</div>'
+      + '<div style="font-size:11px;color:#81A1C1;margin-top:8px;line-height:1.7">'
+      + (ko
+        ? '신뢰도는 수렴도(피크 안정성)&middot;유효 세그먼트 비율&middot;X/Y 축 분리도를 종합한 측정 품질 점수입니다.<br>'
+          + '&bull; <b style=\"color:#A3BE8C\">Apply (75%↑)</b>: 결과를 펩웨어에 바로 적용해도 됩니다.<br>'
+          + '&bull; <b style=\"color:#EBCB8B\">Review (40~75%)</b>: 결과를 확인한 후 적용하세요. 조건이 좋지 않을 수 있습니다.<br>'
+          + '&bull; <b style=\"color:#BF616A\">Retry (40%↓)</b>: 측정 조건을 개선하고 재측정하세요. (진동 부족, 수렴 불안정 등)'
+        : 'Confidence combines peak convergence, active-segment ratio, and X/Y separation.<br>'
+          + '&bull; <b style=\"color:#A3BE8C\">Apply (75%+)</b>: Result is reliable &mdash; apply to firmware.<br>'
+          + '&bull; <b style=\"color:#EBCB8B\">Review (40&ndash;75%)</b>: Check result before applying. Conditions may be suboptimal.<br>'
+          + '&bull; <b style=\"color:#BF616A\">Retry (under 40%)</b>: Re-measure under better conditions (more vibration, longer run).')
+      + '</div></div>';
   }
 
   // 6. HTML

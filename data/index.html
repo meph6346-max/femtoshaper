@@ -47,39 +47,8 @@
       <div style="font-weight:600;font-size:14px;margin-bottom:6px">👋 <span data-i18n="onboard_title"></span></div>
       <div style="font-size:12px;color:var(--tx2);line-height:1.6" data-i18n="onboard_desc"></div>
       <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-        <button class="btn btn-pri btn-sm" onclick="switchTab('settings');startAxisCalibration()">📐 <span data-i18n="onboard_cal"></span></button>
+        <button class="btn btn-pri btn-sm" onclick="switchTab('settings');confirmAxisCalibration()">📐 <span data-i18n="onboard_cal"></span></button>
         <button class="btn btn-out btn-sm" onclick="document.getElementById('onboardBanner').style.display='none'">✕ <span data-i18n="onboard_dismiss"></span></button>
-      </div>
-    </div>
-
-    <!-- ★ 측정 카드 (가장 위 — 사용자가 처음 보는 것) -->
-    <div class="card" id="pmCard" style="border:1px solid var(--pri);padding:14px;margin-bottom:10px">
-      <!-- 측정 전: 안내 + 시작 버튼 -->
-      <div id="pmIdle">
-        <div style="text-align:center;padding:12px 0">
-          <div style="font-size:28px;margin-bottom:8px">📊</div>
-          <div style="font-size:16px;font-weight:700;color:var(--pri);margin-bottom:10px" data-i18n="measure_title">진동 측정</div>
-          <div style="font-size:13px;color:var(--tx2);line-height:1.7;max-width:320px;margin:0 auto 16px">
-            <span data-i18n="measure_guide">센서를 프린터에 부착하고, 아무 모델이나 출력하면서 측정합니다.<br>캘리브레이션이 X/Y를 자동 분리합니다.</span>
-          </div>
-          <button class="btn btn-pri" id="btnPmStart" onclick="startPrintMeasure()" style="font-size:15px;padding:10px 28px" data-i18n="btn_start_measure">▶ 측정 시작</button>
-        </div>
-      </div>
-      <!-- 측정 중: 진행 상태 -->
-      <div id="pmRunning" style="display:none">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <div class="ld on" style="width:10px;height:10px"></div>
-          <span style="font-size:14px;font-weight:600;color:var(--pri)" data-i18n="measuring">측정 중...</span>
-          <div style="flex:1"></div>
-          <button class="btn btn-err btn-sm" id="btnPmDone" onclick="stopPrintMeasure()" data-i18n="btn_stop_measure">⏹ 측정 완료</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <div style="flex:1;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden">
-            <div id="pmProgressBar" style="height:100%;width:0%;background:var(--pri);border-radius:3px;transition:width 0.5s"></div>
-          </div>
-          <span id="pmProgress" style="font-size:11px;color:var(--tx2);min-width:35px">0%</span>
-        </div>
-        <div id="pmSegs" style="font-size:11px;color:var(--tx3)">0 / 0 segs</div>
       </div>
     </div>
 
@@ -90,7 +59,7 @@
         <div class="ic"><div class="il" data-i18n="peak_y"></div><div class="iv c-suc" id="vPeakY">— Hz</div></div>
         <div class="ic"><div class="il" data-i18n="shaper"></div><div class="iv c-wrn" id="vShaper">—</div></div>
         <div class="ic"><div class="il" data-i18n="max_accel"></div><div class="iv c-inf" id="vMaxAccel">—</div></div>
-        <div class="ic" style="grid-column:span 2"><div class="il">Confidence</div><div class="iv" id="vConf" style="font-size:11px;letter-spacing:1px">—</div></div>
+        <div class="ic" style="grid-column:span 2"><div class="il">Confidence <span title="측정 신뢰도: Apply=충분(75%↑) / Review=검토필요(40~75%) / Retry=재측정권장(40%↓). 수렴도·유효세그먼트·X/Y분리도를 종합한 점수." style="cursor:help;color:var(--tx3);font-size:10px">ℹ</span></div><div class="iv" id="vConf" style="font-size:11px;letter-spacing:1px">—</div></div>
         <div id="lowConfWarn" style="display:none;grid-column:span 2;padding:4px 8px;font-size:11px"></div>
         <div id="practicalInfo" style="display:none;grid-column:span 2;padding:6px 8px;font-size:11px;line-height:1.6;background:var(--bg2);border-radius:6px"></div>
       </div>
@@ -122,6 +91,34 @@
       <div class="save-msg" id="resultSaveStatus" style="display:none"></div>
     </div>
 
+    <!-- ★ 측정 카드 (그래프 아래) -->
+    <div class="card" id="pmCard" style="border:1px solid var(--pri);padding:12px;margin-bottom:10px">
+      <!-- 측정 전: 안내 + 시작 버튼 -->
+      <div id="pmIdle">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:13px;color:var(--tx2)" data-i18n="measure_guide">센서를 프린터에 부착하고, 출력하면서 측정합니다.</span>
+          <button class="btn btn-pri btn-sm" id="btnPmStart" onclick="startPrintMeasure()" data-i18n="btn_start_measure">▶ 측정 시작</button>
+        </div>
+      </div>
+      <!-- 측정 중: 진행 상태 -->
+      <div id="pmRunning" style="display:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div class="ld on" style="width:10px;height:10px"></div>
+          <span style="font-size:13px;font-weight:600;color:var(--pri)" data-i18n="measuring">측정 중...</span>
+          <div style="flex:1"></div>
+          <button class="btn btn-err btn-sm" id="btnPmDone" onclick="stopPrintMeasure()" data-i18n="btn_stop_measure">⏹ 측정 완료</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <div style="flex:1;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden">
+            <div id="pmProgressBar" style="height:100%;width:0%;background:var(--pri);border-radius:3px;transition:width 0.5s"></div>
+          </div>
+          <span id="pmProgress" style="font-size:11px;color:var(--tx2);min-width:35px">0%</span>
+        </div>
+        <div id="pmSegs" style="font-size:11px;color:var(--tx3)">0 / 0 segs</div>
+        <div id="pmMinSegMsg" style="display:none;font-size:11px;color:#A3BE8C;margin-top:4px;line-height:1.5">✅ 측정 최소 세그먼트에 도달하였습니다. 측정 시간이 길어질수록 정확한 측정값을 얻을 수 있습니다.</div>
+      </div>
+    </div>
+
     <!-- Apply 다이얼로그 -->
     <div class="apply-panel" id="applyPanel">
       <div class="ap-head"><span data-i18n="apply_title"></span><button class="btn btn-sm btn-sec" onclick="toggleApplyPanel()">✕</button></div>
@@ -139,20 +136,13 @@
           <button class="btn btn-pri btn-sm" onclick="downloadApply()">⬇ <span data-i18n="apply_download"></span></button>
           <button class="btn btn-out btn-sm" onclick="copyApply()">📋 <span data-i18n="apply_copy"></span></button>
         </div>
-        <div class="ap-guide">
-          <details id="guideMarlinIS"><summary>Marlin IS (M593)</summary><pre id="guideMarlinISPre"></pre></details>
-          <details><summary>Marlin FTM (M493)</summary><pre id="guideMarlinFTMPre"></pre></details>
-          <details><summary>Klipper (printer.cfg)</summary><pre id="guideKlipperPre"></pre></details>
-          <details><summary>RepRapFirmware (M593)</summary><pre id="guideRRFPre"></pre></details>
-        </div>
       </div>
     </div>
 
-    <!-- 로그 (접힘) -->
-    <details style="margin-top:8px">
-      <summary style="font-size:11px;color:var(--tx3);cursor:pointer;padding:4px">▸ Log</summary>
+    <!-- 로그 (항상 표시) -->
+    <div style="margin-top:8px">
       <div class="term"><div class="term-bar"><div class="term-dot"></div>Log</div><div class="term-body" id="logShaper"><div><span class="log-ok">></span> <span data-i18n="log_ready"></span></div></div></div>
-    </details>
+    </div>
   </div>
 
   <!-- ===== 탭 2: DIAGNOSTIC ===== -->
@@ -232,6 +222,20 @@
     <!-- ═══ 1. 기본설정 ═══ -->
     <div id="settingsBasic">
       <div class="card">
+        <div class="fs"><div class="fs-t">📐 <span data-i18n="cal_title">Axis Calibration</span></div>
+          <div id="calWizard">
+            <div style="color:var(--tx2);font-size:12px;margin-bottom:8px" data-i18n="cal_desc">Maps sensor axes to printer axes.</div>
+            <div id="calStatus" style="padding:8px 10px;border-radius:6px;background:var(--bg2);margin-bottom:8px;font-size:13px">⏳ <span data-i18n="cal_ready">Press Start</span></div>
+            <div id="calProgress" style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-bottom:8px"><div id="calBar" style="height:100%;width:0%;background:var(--pri);transition:width 0.3s"></div></div>
+            <div id="calResult" style="display:none;padding:8px;border-radius:6px;background:var(--bg2);font-family:monospace;font-size:12px;line-height:1.8"></div>
+            <div class="br" style="gap:6px;margin-top:8px">
+              <button class="btn btn-pri btn-sm" id="calStartBtn" onclick="confirmAxisCalibration()">📐 <span data-i18n="onboard_cal">Calibrate</span></button>
+              <button class="btn btn-suc btn-sm" id="calSaveBtn" onclick="saveCalibration()" style="display:none">💾 Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
         <div class="fs"><div class="fs-t">🖨 <span data-i18n="sec_printer"></span></div>
           <div class="fg">
             <div class="fi"><label data-i18n="build_x"></label><input type="number" id="s_buildX" value="120"><div class="fi-hint">속도 도달 거리 계산 + 리포트</div></div>
@@ -255,20 +259,6 @@
           </div>
         </div>
       </div>
-      <div class="card">
-        <div class="fs"><div class="fs-t">📐 <span data-i18n="cal_title">Axis Calibration</span></div>
-          <div id="calWizard">
-            <div style="color:var(--tx2);font-size:12px;margin-bottom:8px" data-i18n="cal_desc">Maps sensor axes to printer axes.</div>
-            <div id="calStatus" style="padding:8px 10px;border-radius:6px;background:var(--bg2);margin-bottom:8px;font-size:13px">⏳ <span data-i18n="cal_ready">Press Start</span></div>
-            <div id="calProgress" style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-bottom:8px"><div id="calBar" style="height:100%;width:0%;background:var(--pri);transition:width 0.3s"></div></div>
-            <div id="calResult" style="display:none;padding:8px;border-radius:6px;background:var(--bg2);font-family:monospace;font-size:12px;line-height:1.8"></div>
-            <div class="br" style="gap:6px;margin-top:8px">
-              <button class="btn btn-pri btn-sm" id="calStartBtn" onclick="startAxisCalibration()">📐 <span data-i18n="onboard_cal">Calibrate</span></button>
-              <button class="btn btn-suc btn-sm" id="calSaveBtn" onclick="saveCalibration()" style="display:none">💾 Save</button>
-            </div>
-          </div>
-        </div>
-      </div>
       <div class="br"><button class="btn btn-err btn-sm" onclick="resetSettings()">↺ <span data-i18n="btn_reset"></span></button><div style="flex:1"></div><button class="btn btn-pri" onclick="saveSettings()">💾 <span data-i18n="btn_save"></span></button></div>
       <div class="save-msg" id="saveStatus" style="display:none"></div>
     </div>
@@ -288,7 +278,7 @@
             <div class="fi"><label>DC 필터 α</label><input type="number" id="s_pmDcAlpha" value="0.001" step="0.0005" min="0.0001" max="0.01" style="width:80px"></div>
             <div class="fi"><label>피크 히스토리</label><input type="number" id="s_pmPeakHist" value="8" step="1" min="3" max="20" style="width:60px"></div>
             <div class="fi"><label>상관도 경고</label><input type="number" id="s_pmCorrWarn" value="0.8" step="0.05" min="0.3" max="1.0" style="width:70px"></div>
-            <div class="fi"><label>라이브 세그먼트</label><input type="number" id="s_liveSegs" value="2" step="1" min="1" max="10" style="width:60px"><div class="fi-hint">SSE 전송 주기. 1=12fps, 2=6fps, 3=4fps. 버벅이면 ↑</div></div>
+            <div class="fi"><label>라이브 세그먼트</label><input type="number" id="s_liveSegs" value="1" step="1" min="1" max="10" style="width:60px"><div class="fi-hint">SSE 전송 주기. 1=12fps, 2=6fps, 3=4fps. 버벅이면 ↑</div></div>
           </div>
         </div>
       </div>

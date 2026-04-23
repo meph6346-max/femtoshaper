@@ -1824,9 +1824,11 @@ void setup() {
     Serial.println("[DNS] captive-portal DNS started");
   }
 
+  // Suppress noisy WiFiUdp parsePacket errors from mDNS/UDP stack
+  esp_log_level_set("WiFiUdp", ESP_LOG_NONE);
+
   // mDNS: advertise <hostname>.local (STA mode only)
   if (staConnected) {
-    esp_log_level_set("WiFiUdp", ESP_LOG_NONE);
     if (MDNS.begin(cfg.hostname)) {
       MDNS.addService("http", "tcp", 80);
       Serial.printf("[mDNS] http://%s.local\n", cfg.hostname);

@@ -11,8 +11,8 @@ window.liveFreqRes = 3.125;
 let liveData      = new Array(liveBinCount).fill(0);
 let livePeakFreq  = 0;
 let liveEnergy    = 0;
-const LIVE_BAR_ALPHA = 0.45;
-const LIVE_PEAK_ALPHA = 0.35;
+const LIVE_BAR_ALPHA = 0.25;
+const LIVE_PEAK_ALPHA = 0.2;
 
 function resizeLiveBins(binCount) {
   const nextCount = Math.max(1, parseInt(binCount || 0, 10));

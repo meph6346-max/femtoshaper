@@ -229,7 +229,7 @@ function drawLiveFrame(liveData, dataY) {
       },
       options: {
         responsive:true, maintainAspectRatio:false,
-        animation:{duration:0},
+        animation:{duration:80},
         plugins:{legend:{display:false},tooltip:{callbacks:{
           title:(i)=>i[0].label+' Hz',
           label:(i)=>i.datasetIndex===2?'':((i.datasetIndex===0?'X':'Y')+': '+i.raw.toFixed(1)),
@@ -250,7 +250,7 @@ function drawLiveFrame(liveData, dataY) {
     _liveChart.data.datasets[0].backgroundColor = xColors;
     if (_liveChart.data.datasets[1]) _liveChart.data.datasets[1].data = [...liveDataY];
     if (_liveChart.data.datasets[2]) _liveChart.data.datasets[2].data = _peakHoldOn ? [..._peakHold] : [];
-    _liveChart.update('none');
+    _liveChart.update();
   }
 
   // : 5 (60 )

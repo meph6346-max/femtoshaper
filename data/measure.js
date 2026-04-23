@@ -219,14 +219,17 @@ function startPrintPolling() {
       const cvMax = Math.max(cvX, cvY);
 
       //
-      const pct = cvMax >= CONVERGENCE_NOT_READY ? Math.min(20, Math.round(segX / 5))
+      const pct = d.autoReady ? 100
+                : cvMax >= CONVERGENCE_NOT_READY ? Math.min(20, Math.round(segX / 5))
                 : cvMax > 3 ? 30 : cvMax > 1 ? 60 : 90;
       const progBar = document.getElementById('pmProgressBar');
       const progEl = document.getElementById('pmProgress');
       const segEl = document.getElementById('pmSegs');
+      const minSegMsg = document.getElementById('pmMinSegMsg');
       if (progBar) progBar.style.width = `${pct}%`;
       if (progEl) progEl.textContent = `${pct}%`;
       if (segEl) segEl.textContent = `${segX} / ${segTotal}`;
+      if (minSegMsg) minSegMsg.style.display = d.autoReady ? '' : 'none';
 
       // 5
       if (Date.now() - lastLog > 5000) {

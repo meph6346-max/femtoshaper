@@ -565,6 +565,16 @@ function gramSchmidt(gVec, xVec, yVec) {
   return { wx: xHat, wy: yHat, wz: zHat, ortho: ortho, angleXY: angleXY, xMag: xMag, yMag: yMag };
 }
 
+function confirmAxisCalibration() {
+  const ko = typeof curLang !== 'undefined' && curLang === 'ko';
+  const msg = ko
+    ? '캘리브레이션을 시작합니다.\n\n프린터를 정지 상태(모터OFF, 팬OFF)로 준비하세요.\n\n확인을 누르면 즉시 시작됩니다.'
+    : 'Start axis calibration?\n\nMake sure the printer is stationary (motors off, fans off).\n\nPress OK to begin.';
+  if (confirm(msg)) {
+    startAxisCalibration();
+  }
+}
+
 async function startAxisCalibration() {
   var status = document.getElementById('calStatus');
   var result = document.getElementById('calResult');
