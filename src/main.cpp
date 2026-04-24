@@ -1668,6 +1668,7 @@ void handleWifiScan() {
 }
 
 void setup() {
+  esp_log_level_set("WiFiUdp", ESP_LOG_NONE);  // suppress before any WiFi init
   Serial.begin(115200);
   // R68: Brown-out detection - ESP32-C3 sdkconfig default ~2.7V BOD is enabled
   #ifdef CONFIG_ESP_SYSTEM_BROWNOUT_DET
@@ -1823,9 +1824,6 @@ void setup() {
     dnsServer.start(53, "*", AP_IP);
     Serial.println("[DNS] captive-portal DNS started");
   }
-
-  // Suppress noisy WiFiUdp parsePacket errors from mDNS/UDP stack
-  esp_log_level_set("WiFiUdp", ESP_LOG_NONE);
 
   // mDNS: advertise <hostname>.local (STA mode only)
   if (staConnected) {

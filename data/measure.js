@@ -322,9 +322,11 @@ function setPrintMeasBtn(phase) {
   const idle = document.getElementById('pmIdle');
   const running = document.getElementById('pmRunning');
   const result = document.getElementById('resultSection');
+  const minSegMsg = document.getElementById('pmMinSegMsg');
 
   if (idle) idle.style.display = (phase === 'idle' || phase === 'done') ? '' : 'none';
   if (running) running.style.display = (phase === 'running') ? '' : 'none';
-  // : done +
-  if (result && phase === 'done') result.style.display = '';
+  if (result) result.style.display = (phase === 'done') ? '' : 'none';
+  // hide minimum-segment notice unless actively measuring
+  if (minSegMsg && phase !== 'running') minSegMsg.style.display = 'none';
 }

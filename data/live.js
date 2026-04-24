@@ -56,6 +56,9 @@ function toggleLive() {
     if (typeof EventSource === 'undefined') {
       appLog && appLog('logShaper', `<span class="log-err">!</span> EventSource not supported in this browser`);
       liveRunning = false;
+      document.getElementById('liveInd').classList.remove('on');
+      document.getElementById('liveBtnTxt').textContent = t('btn_start_live');
+      ledOn();
       return;
     }
     // SSE. We wrap EventSource setup in a function so the watchdog below
